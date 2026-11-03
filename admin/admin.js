@@ -174,6 +174,7 @@
       validityDays: h('input', { type: 'number', min: '0', value: p ? p.validityDays || 0 : 30 }),
       stock: h('input', { type: 'number', min: '0', value: p && p.type === 'sim' ? p.stock : 0 }),
       description: h('textarea', { rows: 4, maxlength: 3000, value: p ? p.description || '' : '' }),
+      codes: h('textarea', { rows: 5, placeholder: 'Un código por línea. Opcional: código,LPA' }),
       active: h('input', { type: 'checkbox', checked: p ? p.active : true }), featured: h('input', { type: 'checkbox', checked: p ? p.featured : false }),
       file: h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif' }),
     };
@@ -182,7 +183,8 @@
     const preview = h('div', {}, image ? h('img', { src: '/uploads/' + image, alt: '', style: { maxWidth: '160px', borderRadius: '8px' } }) : null);
     const m = msgBox();
     const stockField = field('Stock (piezas físicas)', f.stock);
-    const syncType = () => stockField.classList.toggle('hidden', f.type.value !== 'sim');
+    const codesField = field('Inventario eSIM: agregar códigos (opcional)', f.codes);
+    const syncType = () => { stockField.classList.toggle('hidden', f.type.value !== 'sim'); codesField.classList.toggle('hidden', f.type.value !== 'esim'); };
     f.type.addEventListener('change', syncType); syncType();
     f.file.addEventListener('change', async () => {
       if (!f.file.files[0]) return;
@@ -192,15 +194,24 @@
     const body = h('div', {}, h('datalist', { id: 'carriers' }, ['Telcel', 'AT&T', 'Bait', 'Movistar', 'Unefon', 'Virgin', 'Otro'].map((c) => h('option', { value: c }))),
       field('Nombre', f.name), h('div', { class: 'row two' }, field('Compañía', f.carrier), field('Tipo', f.type)),
       h('div', { class: 'row three' }, field('Precio (MXN, IVA incluido)', f.price), field('Datos', f.dataAmount), field('Vigencia (días)', f.validityDays)),
-      stockField, field('Descripción', f.description),
+      stockField, codesField, field('Descripción', f.description),
       h('div', { class: 'inline' }, h('label', { class: 'inline' }, f.active, ' Visible en la tienda'), h('label', { class: 'inline' }, f.featured, ' Destacado')),
       field('Imagen (PNG, JPG, WEBP o GIF, máx. 2 MB)', f.file), preview,
       image ? h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { image = ''; clear(preview); }, text: 'Quitar imagen' }) : null, m);
     const d = dialog(p ? 'Editar producto' : 'Nuevo producto', body, h('button', { class: 'btn', type: 'button', onclick: async () => {
       const data = { name: f.name.value.trim(), carrier: f.carrier.value.trim(), type: f.type.value, price: f.price.value, dataAmount: f.dataAmount.value.trim(),
         validityDays: Number(f.validityDays.value || 0), stock: Number(f.stock.value || 0), description: f.description.value, active: f.active.checked, featured: f.featured.checked, image };
-      try { await api(p ? '/api/admin/productos/' + p.id : '/api/admin/productos', p ? 'PUT' : 'POST', data); d.close(); toast('Producto guardado'); go('productos'); }
-      catch (e) { show(m, e.message); }
+      try {
+        const r = await api(p ? '/api/admin/productos/' + p.id : '/api/admin/productos', p ? 'PUT' : 'POST', data);
+        let msg = 'Producto guardado';
+        const bulk = f.codes.value.trim();
+        if (data.type === 'esim' && bulk) {
+          const pid = p ? p.id : r.producto.id;
+          try { const inv = await api('/api/admin/inventario', 'POST', { product_id: pid, bulk }); msg += `. Códigos agregados: ${inv.added}, duplicados ignorados: ${inv.duplicates}`; }
+          catch (e2) { show(m, 'Producto guardado, pero los códigos fallaron: ' + e2.message + '. Agrégalos en Inventario eSIM.'); go('productos'); return; }
+        }
+        d.close(); toast(msg); go('productos');
+      } catch (e) { show(m, e.message); }
     }, text: 'Guardar' }));
   }
 
