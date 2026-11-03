@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estado de mi pedido · {tienda}</title>
+<meta name="description" content="Consulta el estado de tu pedido y tus códigos eSIM.">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/styles.css">
+<script src="js/common.js" defer></script>
+<script src="js/estado.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<header class="site-header">
+  <nav class="container nav" aria-label="Principal">
+    <a class="brand" href="index.html"><span class="logo" aria-hidden="true">📶</span><span data-store-name>Tienda eSIM México</span></a>
+    <button class="nav-toggle" type="button" aria-controls="menu" aria-expanded="false" aria-label="Abrir menú">☰</button>
+    <div class="menu" id="menu">
+      <a href="index.html">Inicio</a>
+      <a href="productos.html">Productos</a>
+      <a href="estado.html">Mi pedido</a>
+      <a href="contacto.html">Contacto</a>
+      <a href="carrito.html">Carrito <span class="badge" data-cart-count>0</span></a>
+    </div>
+  </nav>
+</header>
+<main id="main">
+<section>
+  <div class="container">
+    <div id="order" aria-live="polite"></div>
+    <div id="lookup" class="panel hidden">
+      <h1>Consultar mi pedido</h1>
+      <p class="muted">Escribe tu número de pedido y el correo con el que compraste. Para ver tus códigos eSIM usa el enlace privado que recibiste al comprar.</p>
+      <form id="lookup-form" novalidate>
+        <div class="row two">
+          <div class="field"><label for="l-number">Número de pedido</label><input id="l-number" name="number" required maxlength="40" placeholder="MX261102-ABC123"></div>
+          <div class="field"><label for="l-email">Correo</label><input id="l-email" name="email" type="email" required maxlength="160"></div>
+        </div>
+        <div id="lookup-msg" class="hidden"></div>
+        <button class="btn" type="submit">Consultar</button>
+      </form>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="site-footer">
+  <div class="container cols">
+    <div><strong data-store-name>Tienda eSIM México</strong><p>eSIM y chips para Telcel, AT&amp;T, Bait, Movistar, Unefon y más. Precios en pesos mexicanos (MXN) con IVA incluido.</p></div>
+    <div><strong>Ayuda</strong><p><a href="estado.html">Consultar mi pedido</a><br><a href="contacto.html">Contacto</a><br><a href="index.html#faq">Preguntas frecuentes</a></p></div>
+    <div><strong>Contacto</strong><p id="footer-wa"></p><p id="footer-email"></p></div>
+  </div>
+  <div class="container"><p class="muted">© <span id="year">2026</span> <span data-store-name>Tienda eSIM México</span>. Las marcas mencionadas pertenecen a sus respectivos dueños; no somos operador oficial.</p></div>
+</footer>
+</body>
+</html>

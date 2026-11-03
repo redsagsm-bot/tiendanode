@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contacto · {tienda}</title>
+<meta name="description" content="Contáctanos.">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/styles.css">
+<script src="js/common.js" defer></script>
+<script src="js/contacto.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<header class="site-header">
+  <nav class="container nav" aria-label="Principal">
+    <a class="brand" href="index.html"><span class="logo" aria-hidden="true">📶</span><span data-store-name>Tienda eSIM México</span></a>
+    <button class="nav-toggle" type="button" aria-controls="menu" aria-expanded="false" aria-label="Abrir menú">☰</button>
+    <div class="menu" id="menu">
+      <a href="index.html">Inicio</a>
+      <a href="productos.html">Productos</a>
+      <a href="estado.html">Mi pedido</a>
+      <a href="contacto.html">Contacto</a>
+      <a href="carrito.html">Carrito <span class="badge" data-cart-count>0</span></a>
+    </div>
+  </nav>
+</header>
+<main id="main">
+<section>
+  <div class="container">
+    <h1>Contacto</h1>
+    <div class="layout">
+      <form id="contact-form" class="panel" novalidate>
+        <div class="field"><label for="m-name">Nombre</label><input id="m-name" name="name" required minlength="2" maxlength="100" autocomplete="name"></div>
+        <div class="row two">
+          <div class="field"><label for="m-email">Correo</label><input id="m-email" name="email" type="email" required maxlength="160" autocomplete="email"></div>
+          <div class="field"><label for="m-phone">Teléfono (opcional)</label><input id="m-phone" name="phone" type="tel" maxlength="20" autocomplete="tel"></div>
+        </div>
+        <div class="field"><label for="m-msg">Mensaje</label><textarea id="m-msg" name="message" rows="5" required minlength="5" maxlength="2000"></textarea></div>
+        <div id="contact-msg" class="hidden"></div>
+        <button class="btn" type="submit">Enviar mensaje</button>
+      </form>
+      <aside class="panel">
+        <h2>Otras formas</h2>
+        <p id="contact-wa" class="muted">También puedes escribirnos por WhatsApp.</p>
+        <p id="contact-email"></p>
+        <p class="muted">Horario de atención: lunes a sábado de 9:00 a 19:00 (hora del centro de México).</p>
+      </aside>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="site-footer">
+  <div class="container cols">
+    <div><strong data-store-name>Tienda eSIM México</strong><p>eSIM y chips para Telcel, AT&amp;T, Bait, Movistar, Unefon y más. Precios en pesos mexicanos (MXN) con IVA incluido.</p></div>
+    <div><strong>Ayuda</strong><p><a href="estado.html">Consultar mi pedido</a><br><a href="contacto.html">Contacto</a><br><a href="index.html#faq">Preguntas frecuentes</a></p></div>
+    <div><strong>Contacto</strong><p id="footer-wa"></p><p id="footer-email"></p></div>
+  </div>
+  <div class="container"><p class="muted">© <span id="year">2026</span> <span data-store-name>Tienda eSIM México</span>. Las marcas mencionadas pertenecen a sus respectivos dueños; no somos operador oficial.</p></div>
+</footer>
+</body>
+</html>

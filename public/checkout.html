@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pago · {tienda}</title>
+<meta name="description" content="Finaliza tu compra.">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/styles.css">
+<script src="js/common.js" defer></script>
+<script src="js/checkout.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<header class="site-header">
+  <nav class="container nav" aria-label="Principal">
+    <a class="brand" href="index.html"><span class="logo" aria-hidden="true">📶</span><span data-store-name>Tienda eSIM México</span></a>
+    <button class="nav-toggle" type="button" aria-controls="menu" aria-expanded="false" aria-label="Abrir menú">☰</button>
+    <div class="menu" id="menu">
+      <a href="index.html">Inicio</a>
+      <a href="productos.html">Productos</a>
+      <a href="estado.html">Mi pedido</a>
+      <a href="contacto.html">Contacto</a>
+      <a href="carrito.html">Carrito <span class="badge" data-cart-count>0</span></a>
+    </div>
+  </nav>
+</header>
+<main id="main">
+<section>
+  <div class="container">
+    <h1>Finalizar compra</h1>
+    <div class="layout">
+      <form id="checkout-form" novalidate>
+        <fieldset>
+          <legend>Tus datos</legend>
+          <div class="field"><label for="c-name">Nombre completo</label><input id="c-name" name="name" autocomplete="name" required minlength="2" maxlength="100"></div>
+          <div class="row two">
+            <div class="field"><label for="c-email">Correo electrónico</label><input id="c-email" name="email" type="email" autocomplete="email" required maxlength="160"></div>
+            <div class="field"><label for="c-phone">Teléfono / WhatsApp (10 dígitos)</label><input id="c-phone" name="phone" type="tel" autocomplete="tel" required inputmode="tel" pattern="\+?[0-9 ()\-]{10,20}" maxlength="20" placeholder="55 1234 5678"></div>
+          </div>
+        </fieldset>
+        <fieldset id="address-box" class="hidden">
+          <legend>Dirección de envío (para chips físicos)</legend>
+          <div class="field"><label for="a-street">Calle, número exterior e interior</label><input id="a-street" name="street" autocomplete="address-line1" maxlength="160"></div>
+          <div class="row two">
+            <div class="field"><label for="a-colonia">Colonia</label><input id="a-colonia" name="colonia" maxlength="100"></div>
+            <div class="field"><label for="a-cp">Código postal</label><input id="a-cp" name="cp" inputmode="numeric" pattern="\d{5}" maxlength="5" autocomplete="postal-code"></div>
+          </div>
+          <div class="row two">
+            <div class="field"><label for="a-city">Ciudad / Municipio</label><input id="a-city" name="city" autocomplete="address-level2" maxlength="100"></div>
+            <div class="field"><label for="a-state">Estado</label><select id="a-state" name="state"><option value="">Selecciona…</option></select></div>
+          </div>
+          <div class="field"><label for="a-refs">Referencias (opcional)</label><input id="a-refs" name="refs" maxlength="200" placeholder="Entre calles, color de fachada…"></div>
+        </fieldset>
+        <fieldset>
+          <legend>Método de pago</legend>
+          <div id="pay-methods"></div>
+        </fieldset>
+        <div id="form-msg" class="hidden"></div>
+        <button id="place" class="btn mt" type="submit" style="width:100%">Confirmar pedido</button>
+      </form>
+      <aside class="panel" aria-label="Resumen del pedido">
+        <h2>Tu pedido</h2>
+        <div id="summary"><div class="spinner" aria-label="Cargando"></div></div>
+        <div id="pay-step" class="hidden mt">
+          <h3>Paga con PayPal</h3>
+          <p class="muted">Tu pedido <strong id="pay-number"></strong> está reservado. Completa el pago para recibirlo.</p>
+          <div id="paypal-buttons"></div>
+          <div id="pay-msg" class="hidden"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="site-footer">
+  <div class="container cols">
+    <div><strong data-store-name>Tienda eSIM México</strong><p>eSIM y chips para Telcel, AT&amp;T, Bait, Movistar, Unefon y más. Precios en pesos mexicanos (MXN) con IVA incluido.</p></div>
+    <div><strong>Ayuda</strong><p><a href="estado.html">Consultar mi pedido</a><br><a href="contacto.html">Contacto</a><br><a href="index.html#faq">Preguntas frecuentes</a></p></div>
+    <div><strong>Contacto</strong><p id="footer-wa"></p><p id="footer-email"></p></div>
+  </div>
+  <div class="container"><p class="muted">© <span id="year">2026</span> <span data-store-name>Tienda eSIM México</span>. Las marcas mencionadas pertenecen a sus respectivos dueños; no somos operador oficial.</p></div>
+</footer>
+</body>
+</html>
