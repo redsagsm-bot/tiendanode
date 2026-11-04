@@ -92,6 +92,7 @@
     const y = $('#year'); if (y) y.textContent = String(new Date().getFullYear());
     config().then((c) => {
       document.querySelectorAll('[data-store-name]').forEach((e) => { e.textContent = c.storeName; });
+      const hb = document.querySelector('.hero-banner'); if (hb && c.banner) { hb.append(h('img', { src: '/uploads/' + c.banner, alt: '' })); hb.hidden = false; }
       if (c.logo) document.querySelectorAll('.brand .logo').forEach((e) => { e.classList.add('has-img'); e.textContent = ''; e.append(h('img', { src: '/uploads/' + c.logo, alt: '' })); });
       if (document.title.includes('{tienda}')) document.title = document.title.replace('{tienda}', c.storeName);
       if (c.whatsapp) {
