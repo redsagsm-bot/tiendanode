@@ -10,7 +10,8 @@ img{max-width:100%;display:block}a{color:var(--brand)}a:hover{color:var(--brand-
 .site-header{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
 .nav{display:flex;align-items:center;justify-content:space-between;min-height:64px;gap:1rem}
 .brand{display:flex;align-items:center;gap:.5rem;font-weight:800;font-size:1.1rem;color:var(--text);text-decoration:none}
-.logo.has-img{background:none;width:auto;height:40px;border-radius:0}.logo.has-img img{height:40px;width:auto;max-width:160px;object-fit:contain}
+.logo.has-img{background:none;width:auto;height:80px;border-radius:0}.logo.has-img img{height:80px;width:auto;max-width:240px;object-fit:contain}@media(min-width:760px){.logo.has-img,.logo.has-img img{height:110px}.logo.has-img img{max-width:320px}}
+.nav:has(.logo.has-img){padding-block:.35rem}
 .logo{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--brand),var(--accent));color:#fff;font-size:1.1rem}
 .nav-toggle{display:inline-flex;background:none;border:1px solid var(--border);border-radius:10px;padding:.45rem .7rem;font-size:1.2rem;cursor:pointer}
 .menu{display:none;position:absolute;top:64px;left:0;right:0;background:#fff;border-bottom:1px solid var(--border);flex-direction:column;padding:.5rem 1rem 1rem}
