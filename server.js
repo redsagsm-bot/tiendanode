@@ -110,6 +110,7 @@ function storeConfig() {
   return {
     storeName: setting('store_name', process.env.STORE_NAME || 'Tienda eSIM México'),
     logo: setting('logo', ''),
+    banner: setting('banner', ''),
     contactEmail: setting('contact_email', process.env.CONTACT_EMAIL || ''),
     whatsapp: setting('whatsapp', process.env.WHATSAPP || ''),
     shippingCost: Number(setting('shipping_cost', String(Math.round(num(process.env.SHIPPING_COST, 99) * 100)))),
@@ -948,6 +949,7 @@ admin('PUT', '/api/admin/ajustes', ({ body }) => {
   const sets = [];
   if (body.storeName !== undefined) sets.push(['store_name', str(body.storeName, { min: 2, max: 80, name: 'Nombre de la tienda' })]);
   if (body.logo !== undefined) sets.push(['logo', str(body.logo, { max: 80, name: 'Logotipo', re: /^[a-f0-9]{32}\.(png|jpg|webp|gif)$/ })]);
+  if (body.banner !== undefined) sets.push(['banner', str(body.banner, { max: 80, name: 'Banner', re: /^[a-f0-9]{32}\.(png|jpg|webp|gif)$/ })]);
   if (body.contactEmail !== undefined) sets.push(['contact_email', str(body.contactEmail, { max: 160, name: 'Correo de contacto', re: EMAIL_RE })]);
   if (body.whatsapp !== undefined) sets.push(['whatsapp', str(body.whatsapp, { max: 20, name: 'WhatsApp (solo dígitos con lada, ej. 5215512345678)', re: /^\+?[0-9]{10,15}$/ }).replace('+', '')]);
   if (body.shippingCost !== undefined) sets.push(['shipping_cost', pesosToCents(body.shippingCost, 'Costo de envío')]);
