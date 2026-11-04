@@ -318,13 +318,22 @@
       shippingCost: h('input', { type: 'number', step: '0.01', min: '0', value: (s.shippingCost / 100).toFixed(2) }), bankInfo: h('textarea', { rows: 4, maxlength: 2000, value: s.bankInfo }),
       ppMode: h('select', {}, h('option', { value: 'sandbox', text: 'Sandbox (pruebas)' }), h('option', { value: 'live', text: 'Live (producción)' })), ppClient: h('input', { value: s.paypal.clientId, maxlength: 200, autocomplete: 'off' }),
       ppSecret: h('input', { type: 'password', maxlength: 200, autocomplete: 'new-password', placeholder: s.paypal.secretSet ? 'Guardado: ' + s.paypal.secretMasked + ' (deja vacío para conservar)' : 'Secret de PayPal' }) };
+    let logo = s.logo || '';
+    const logoPrev = h('div', {}, logo ? h('img', { src: '/uploads/' + logo, alt: '', style: { maxHeight: '60px' } }) : null);
+    const logoFile = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif' });
+    logoFile.addEventListener('change', async () => {
+      if (!logoFile.files[0]) return;
+      try { const r = await api('/api/admin/upload', 'POST', await fileToB64(logoFile.files[0])); logo = r.url.replace('/uploads/', ''); clear(logoPrev).append(h('img', { src: r.url, alt: '', style: { maxHeight: '60px' } })); show(m, 'Logotipo subido: pulsa "Guardar ajustes"', 'ok'); }
+      catch (e) { show(m, e.message); logoFile.value = ''; }
+    });
     f.ppMode.value = s.paypal.mode;
     if (s.paypal.fromEnv) [f.ppMode, f.ppClient, f.ppSecret].forEach((x) => { x.disabled = true; });
     const testTo = h('input', { type: 'email', placeholder: 'correo@ejemplo.com', value: s.contactEmail, style: { width: 'auto' } }), tm = msgBox();
     clear(main).append(h('h1', { text: 'Ajustes' }),
       h('div', { class: 'layout' },
         h('div', {},
-          h('div', { class: 'panel' }, h('h2', { text: 'Tienda' }), field('Nombre de la tienda', f.storeName), h('div', { class: 'row two' }, field('Correo de contacto', f.contactEmail), field('WhatsApp (con lada, ej. 5215512345678)', f.whatsapp)),
+          h('div', { class: 'panel' }, h('h2', { text: 'Tienda' }), field('Nombre de la tienda', f.storeName), field('Logotipo (PNG, JPG, WEBP o GIF, máx. 2 MB)', logoFile), logoPrev,
+            h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { logo = ''; clear(logoPrev); show(m, 'Logotipo quitado: pulsa "Guardar ajustes"', 'info'); }, text: 'Quitar logotipo' }), h('div', { class: 'row two' }, field('Correo de contacto', f.contactEmail), field('WhatsApp (con lada, ej. 5215512345678)', f.whatsapp)),
             field('Costo de envío para SIM física (MXN)', f.shippingCost), field('Instrucciones para transferencia / depósito', f.bankInfo)),
           h('div', { class: 'panel mt' }, h('h2', { text: 'PayPal' }),
             s.paypal.fromEnv ? h('p', { class: 'notice info', text: 'PayPal está configurado con variables de entorno (PAYPAL_CLIENT_ID / PAYPAL_SECRET). Para cambiarlo edítalas en Railway.' }) : null,
@@ -333,7 +342,7 @@
             h('div', { class: 'inline' }, s.paypal.secretSet && !s.paypal.fromEnv ? h('button', { class: 'btn sm secondary', type: 'button', onclick: async () => { if (!confirm('¿Borrar el Secret de PayPal? Se desactivará el pago con PayPal.')) return; try { await api('/api/admin/ajustes', 'PUT', { paypal: { clearSecret: true } }); go('ajustes'); } catch (e) { show(m, e.message); } }, text: 'Borrar Secret' }) : null,
               h('button', { class: 'btn sm secondary', type: 'button', onclick: async () => { try { const r = await api('/api/admin/paypal-test', 'POST'); show(m, 'Conexión con PayPal correcta' + (r.mode ? ' (' + r.mode + ')' : ''), 'ok'); } catch (e) { show(m, e.message); } }, text: 'Probar conexión PayPal' }))),
           m, h('button', { class: 'btn mt', type: 'button', onclick: async () => {
-            const body = { storeName: f.storeName.value.trim(), contactEmail: f.contactEmail.value.trim(), whatsapp: f.whatsapp.value.trim(), shippingCost: f.shippingCost.value, bankInfo: f.bankInfo.value };
+            const body = { logo, storeName: f.storeName.value.trim(), contactEmail: f.contactEmail.value.trim(), whatsapp: f.whatsapp.value.trim(), shippingCost: f.shippingCost.value, bankInfo: f.bankInfo.value };
             if (!s.paypal.fromEnv) { body.paypal = { mode: f.ppMode.value, clientId: f.ppClient.value.trim() }; if (f.ppSecret.value) body.paypal.secret = f.ppSecret.value.trim(); }
             try { await api('/api/admin/ajustes', 'PUT', body); toast('Ajustes guardados'); go('ajustes'); } catch (e) { show(m, e.message); }
           }, text: 'Guardar ajustes' })),

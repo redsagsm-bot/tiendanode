@@ -92,6 +92,7 @@
     const y = $('#year'); if (y) y.textContent = String(new Date().getFullYear());
     config().then((c) => {
       document.querySelectorAll('[data-store-name]').forEach((e) => { e.textContent = c.storeName; });
+      if (c.logo) document.querySelectorAll('.brand .logo').forEach((e) => { e.classList.add('has-img'); e.textContent = ''; e.append(h('img', { src: '/uploads/' + c.logo, alt: '' })); });
       if (document.title.includes('{tienda}')) document.title = document.title.replace('{tienda}', c.storeName);
       if (c.whatsapp) {
         document.body.append(h('a', { class: 'wa-float', href: waLink(c.whatsapp, 'Hola, tengo una pregunta sobre la tienda'), target: '_blank', rel: 'noopener', text: 'WhatsApp' }));
