@@ -347,6 +347,7 @@
     });
     f.ppMode.value = s.paypal.mode;
     if (s.paypal.fromEnv) [f.ppMode, f.ppClient, f.ppSecret].forEach((x) => { x.disabled = true; });
+    const tgm = msgBox();
     const testTo = h('input', { type: 'email', placeholder: 'correo@ejemplo.com', value: s.contactEmail, style: { width: 'auto' } }), tm = msgBox();
     clear(main).append(h('h1', { text: 'Ajustes' }),
       h('div', { class: 'layout' },
@@ -371,6 +372,9 @@
           h('div', { class: 'panel' }, h('h2', { text: 'Correo (SMTP)' }),
             h('p', { class: s.smtp.configured ? 'notice ok' : 'notice', text: s.smtp.configured ? `Configurado: ${s.smtp.host} (remitente ${s.smtp.from})` : 'No configurado (opcional). Define SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS y SMTP_FROM en las variables de entorno.' }),
             h('div', { class: 'inline' }, testTo, h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await api('/api/admin/smtp-test', 'POST', { to: testTo.value.trim() }); show(tm, 'Correo de prueba enviado', 'ok'); } catch (e) { show(tm, e.message); } }, text: 'Enviar prueba' })), tm),
+          h('div', { class: 'panel mt' }, h('h2', { text: 'Avisos por Telegram' }),
+            h('p', { class: s.telegram.configured ? 'notice ok' : 'notice', text: s.telegram.configured ? 'Configurado: recibirás avisos de pedidos nuevos, pagos confirmados y stock bajo.' : 'No configurado (opcional). Define TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en las variables de entorno.' }),
+            h('div', { class: 'inline' }, h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await api('/api/admin/telegram-test', 'POST'); show(tgm, 'Mensaje de prueba enviado a Telegram', 'ok'); } catch (e) { show(tgm, e.message); } }, text: 'Enviar prueba' })), tgm),
           h('div', { class: 'mt' }, renderChangePassword(false)))));
   };
 

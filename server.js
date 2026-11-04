@@ -134,6 +134,35 @@ function paypal() {
   if (ppCache.key !== key) ppCache = { key, client: createPayPalClient(c) };
   return ppCache.client;
 }
+// ---------------------------------------------------------------- Telegram (avisos al dueño)
+const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '', TG_CHAT = process.env.TELEGRAM_CHAT_ID || '';
+const telegramEnabled = () => !!(TG_TOKEN && TG_CHAT);
+async function tgSend(text) {
+  const r = await fetch(`${process.env.TELEGRAM_API || 'https://api.telegram.org'}/bot${TG_TOKEN}/sendMessage`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ chat_id: TG_CHAT, text: String(text).slice(0, 3500), disable_web_page_preview: true }), signal: AbortSignal.timeout(8000) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.description || 'HTTP ' + r.status); }
+}
+function notifyAdmin(text) {
+  if (!telegramEnabled()) return;
+  setImmediate(() => tgSend(text).catch((e) => console.error('[telegram]', e.message)));
+}
+function orderSummary(orderId) {
+  const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
+  return { o, items, lines: items.map((i) => `- ${i.qty} x ${i.name}`).join('\n'), total: '$' + (o.total / 100).toFixed(2) + ' MXN' };
+}
+function notifyLowStock(items) {
+  if (!telegramEnabled()) return;
+  const seen = new Set(), low = [];
+  for (const i of items) {
+    if (seen.has(i.product_id)) continue; seen.add(i.product_id);
+    const row = db.prepare('SELECT * FROM products WHERE id = ? AND deleted = 0').get(i.product_id);
+    const p = row && row.active ? productOut(row) : null;
+    if (p && p.stock < LOW_STOCK) low.push(`- ${p.name}: quedan ${p.stock}`);
+  }
+  if (low.length) notifyAdmin('Stock bajo:\n' + low.join('\n'));
+}
+
 function smtpConfig() {
   const host = process.env.SMTP_HOST;
   if (!host) return null;
@@ -374,6 +403,18 @@ function expireOrders() {
 }
 
 function createOrder(b) {
+  const res = createOrderTx(b);
+  try {
+    const row = db.prepare('SELECT id FROM orders WHERE number = ?').get(res.number);
+    if (row && telegramEnabled()) {
+      const s = orderSummary(row.id);
+      const how = res.paymentMethod === 'paypal' ? 'pago con PayPal pendiente' : 'transferencia/manual: esperando comprobante';
+      notifyAdmin(`Pedido nuevo ${res.number}\n${s.o.name} - ${s.total}\n${how}\n${s.lines}`);
+    }
+  } catch (e) { console.error('[telegram]', e.message); }
+  return res;
+}
+function createOrderTx(b) {
   if (!Array.isArray(b.items) || b.items.length < 1 || b.items.length > 30) fail(400, 'El carrito está vacío o es inválido');
   const merged = new Map();
   for (const it of b.items) {
@@ -475,6 +516,13 @@ function confirmPaid(orderId, { captureId = null, by = 'sistema' } = {}) {
       .run(status, nowIso(), captureId, note, o.id);
     return { already: false, order: db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id), problems };
   });
+  if (!res.already && telegramEnabled()) {
+    try {
+      const s = orderSummary(orderId);
+      notifyAdmin(`Pago confirmado ${s.o.number}\n${s.o.name} - ${s.total}\n${s.lines}${res.problems && res.problems.length ? '\nATENCION: ' + res.problems.join('; ') : ''}`);
+      notifyLowStock(s.items);
+    } catch (e) { console.error('[telegram]', e.message); }
+  }
   if (!res.already) setImmediate(() => sendDeliveryEmail(orderId).catch((e) => console.error('[email]', e.message)));
   return res;
 }
@@ -943,7 +991,7 @@ admin('DELETE', '/api/admin/mensajes/:id', ({ params }) => { db.prepare('DELETE 
 admin('GET', '/api/admin/ajustes', () => {
   const pp = paypalConfig(), smtp = smtpConfig();
   return { ...storeConfig(), paypal: { mode: pp.mode, clientId: pp.clientId || '', secretSet: !!pp.secret, secretMasked: pp.secret ? '••••••••' + pp.secret.slice(-4) : '',
-    fromEnv: pp.fromEnv, mock: PAYPAL_MOCK }, smtp: { configured: !!smtp, host: smtp ? smtp.host : '', from: smtp ? smtp.from : '' } };
+    fromEnv: pp.fromEnv, mock: PAYPAL_MOCK }, smtp: { configured: !!smtp, host: smtp ? smtp.host : '', from: smtp ? smtp.from : '' }, telegram: { configured: telegramEnabled() } };
 });
 admin('PUT', '/api/admin/ajustes', ({ body }) => {
   const sets = [];
@@ -972,6 +1020,12 @@ admin('POST', '/api/admin/smtp-test', async ({ body }) => {
   const to = str(body.to, { min: 5, max: 160, name: 'Correo destino', re: EMAIL_RE });
   try { await sendMail(smtp, { to, subject: `${storeConfig().storeName}: prueba de correo`, text: 'Si recibes este mensaje, el correo de la tienda funciona correctamente.' }); }
   catch (e) { fail(502, 'Error SMTP: ' + e.message); }
+  return { ok: true };
+});
+admin('POST', '/api/admin/telegram-test', async () => {
+  if (!telegramEnabled()) fail(400, 'Telegram no configurado. Define TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en Railway.');
+  try { await tgSend(`${storeConfig().storeName}: prueba de avisos por Telegram. Si lees esto, funciona.`); }
+  catch (e) { fail(502, 'Error Telegram: ' + e.message); }
   return { ok: true };
 });
 admin('POST', '/api/admin/paypal-test', async () => {
@@ -1100,7 +1154,7 @@ server.listen(PORT, HOST, () => {
   const a = server.address();
   const pp = paypalConfig();
   console.log(`[tienda] Escuchando en http://${HOST}:${a.port}  (DATA_DIR=${DATA_DIR})`);
-  console.log(`[tienda] PayPal: ${PAYPAL_MOCK ? 'SIMULADO (solo pruebas)' : pp.enabled ? 'activo (' + pp.mode + ')' : 'no configurado'} | Correo SMTP: ${smtpConfig() ? 'configurado' : 'no configurado (opcional)'}`);
+  console.log(`[tienda] PayPal: ${PAYPAL_MOCK ? 'SIMULADO (solo pruebas)' : pp.enabled ? 'activo (' + pp.mode + ')' : 'no configurado'} | Correo SMTP: ${smtpConfig() ? 'configurado' : 'no configurado (opcional)'} | Telegram: ${telegramEnabled() ? 'configurado' : 'no configurado (opcional)'}`);
 });
 function shutdown() {
   console.log('[tienda] Cerrando...');
