@@ -96,9 +96,10 @@
       if (c.logo) document.querySelectorAll('.brand .logo').forEach((e) => { e.classList.add('has-img'); e.textContent = ''; e.append(h('img', { src: '/uploads/' + c.logo, alt: '' })); });
       if (document.title.includes('{tienda}')) document.title = document.title.replace('{tienda}', c.storeName);
       if (c.whatsapp) {
-        document.body.append(h('a', { class: 'wa-float', href: waLink(c.whatsapp, 'Hola, tengo una pregunta sobre la tienda'), target: '_blank', rel: 'noopener', text: 'WhatsApp' }));
+        document.body.append(h('a', { class: 'wa-float' + (c.tidio ? ' wa-left' : ''), href: waLink(c.whatsapp, 'Hola, tengo una pregunta sobre la tienda'), target: '_blank', rel: 'noopener', text: 'WhatsApp' }));
         const f = $('#footer-wa'); if (f) f.append(h('a', { href: waLink(c.whatsapp), target: '_blank', rel: 'noopener', text: 'WhatsApp: +' + c.whatsapp }));
       }
+      if (c.tidio && !document.querySelector('script[data-tidio]')) document.head.append(h('script', { src: 'https://code.tidio.co/' + encodeURIComponent(c.tidio) + '.js', async: '', 'data-tidio': '' }));
       const fe = $('#footer-email'); if (fe && c.contactEmail) fe.append(h('a', { href: 'mailto:' + c.contactEmail, text: c.contactEmail }));
     });
   }
