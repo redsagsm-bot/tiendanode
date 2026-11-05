@@ -104,6 +104,14 @@
     });
   }
   document.addEventListener('DOMContentLoaded', layout);
+  const footer = document.querySelector('.site-footer');
+  if (footer) {
+    const copy = footer.querySelector(':scope > .container:last-child');
+    const badges = h('div', { class: 'container pay-badges' },
+      h('img', { src: '/img/paypal.svg', alt: 'Pagos con PayPal', width: 120, height: 40, loading: 'lazy' }),
+      h('img', { src: '/img/pago-seguro.svg', alt: 'Pago seguro', width: 150, height: 40, loading: 'lazy' }));
+    if (copy) footer.insertBefore(badges, copy); else footer.append(badges);
+  }
   window.App = { h, money, clear, $, api, Cart, config, productCard, thumb, toast, notice, waLink, carrierColor };
 })();
 // Carga del SDK de PayPal bajo demanda (client-id viene de /api/config).
