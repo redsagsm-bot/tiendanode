@@ -37,7 +37,7 @@
     return data;
   }
   const fileToB64 = (file) => new Promise((resolve, reject) => {
-    if (file.size > 2 * 1024 * 1024) return reject(new Error('La imagen supera 2 MB'));
+    if (file.size > 8 * 1024 * 1024) return reject(new Error('La imagen supera 8 MB'));
     const r = new FileReader(); r.onload = () => resolve({ filename: file.name, data: String(r.result).split(',')[1] }); r.onerror = () => reject(new Error('No se pudo leer el archivo')); r.readAsDataURL(file);
   });
 
@@ -196,7 +196,7 @@
       h('div', { class: 'row three' }, field('Precio (MXN, IVA incluido)', f.price), field('Datos', f.dataAmount), field('Vigencia (días)', f.validityDays)),
       stockField, codesField, field('Descripción', f.description),
       h('div', { class: 'inline' }, h('label', { class: 'inline' }, f.active, ' Visible en la tienda'), h('label', { class: 'inline' }, f.featured, ' Destacado')),
-      field('Imagen (PNG, JPG, WEBP o GIF, máx. 2 MB)', f.file), preview,
+      field('Imagen (PNG, JPG, WEBP o GIF, máx. 8 MB)', f.file), preview,
       image ? h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { image = ''; clear(preview); }, text: 'Quitar imagen' }) : null, m);
     const d = dialog(p ? 'Editar producto' : 'Nuevo producto', body, h('button', { class: 'btn', type: 'button', onclick: async () => {
       const data = { name: f.name.value.trim(), carrier: f.carrier.value.trim(), type: f.type.value, price: f.price.value, dataAmount: f.dataAmount.value.trim(),
@@ -357,9 +357,9 @@
     clear(main).append(h('h1', { text: 'Ajustes' }),
       h('div', { class: 'layout' },
         h('div', {},
-          h('div', { class: 'panel' }, h('h2', { text: 'Tienda' }), field('Nombre de la tienda', f.storeName), field('Logotipo (PNG, JPG, WEBP o GIF, máx. 2 MB)', logoFile), logoPrev,
+          h('div', { class: 'panel' }, h('h2', { text: 'Tienda' }), field('Nombre de la tienda', f.storeName), field('Logotipo (PNG, JPG, WEBP o GIF, máx. 8 MB)', logoFile), logoPrev,
             h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { logo = ''; clear(logoPrev); show(m, 'Logotipo quitado: pulsa "Guardar ajustes"', 'info'); }, text: 'Quitar logotipo' }),
-            field('Banner de la página de inicio: agrega hasta 6 imágenes y se mueven solas (PNG, JPG, WEBP o GIF, máx. 2 MB c/u; ideal 1600×500)', banFile), banList,
+            field('Banner de la página de inicio: agrega hasta 6 imágenes y se mueven solas (PNG, JPG, WEBP o GIF, máx. 8 MB c/u; ideal 1600×500)', banFile), banList,
             h('div', { class: 'row two' }, field('Correo de contacto', f.contactEmail), field('WhatsApp (con lada, ej. 5215512345678)', f.whatsapp)),
             field('Costo de envío para SIM física (MXN)', f.shippingCost), field('Instrucciones para transferencia / depósito', f.bankInfo)),
           h('div', { class: 'panel mt' }, h('h2', { text: 'PayPal' }),

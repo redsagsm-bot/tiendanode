@@ -32,9 +32,9 @@ const EXPIRY_INTERVAL = Math.max(200, num(process.env.EXPIRY_INTERVAL_MS, 30000)
 const LOW_STOCK = num(process.env.STOCK_BAJO, 5);
 const TZ_OFF = num(process.env.TZ_OFFSET_HORAS, -6) * 3600e3;
 const SESSION_TTL = 8 * 3600e3;
-const MAX_IMG = 2 * 1024 * 1024;
+const MAX_IMG = 8 * 1024 * 1024;
 const JSON_LIMIT = 100 * 1024;
-const UPLOAD_LIMIT = 3 * 1024 * 1024 + 64 * 1024;
+const UPLOAD_LIMIT = Math.ceil(MAX_IMG * 4 / 3) + 64 * 1024; // base64 pesa ~4/3 del archivo
 
 function loadSecret() {
   if (process.env.SESSION_SECRET) {
@@ -327,7 +327,7 @@ function saveImage(img, dir) {
   if (!/^[A-Za-z0-9+/=\r\n]+$/.test(b64)) fail(400, 'Imagen inválida');
   const buf = Buffer.from(b64, 'base64');
   if (!buf.length) fail(400, 'Imagen vacía');
-  if (buf.length > MAX_IMG) fail(413, 'La imagen supera 2 MB');
+  if (buf.length > MAX_IMG) fail(413, 'La imagen supera 8 MB');
   const ext = sniff(buf);
   if (!ext) fail(415, 'Formato no permitido. Solo PNG, JPG, WEBP o GIF.');
   const name = crypto.randomBytes(16).toString('hex') + '.' + ext;
