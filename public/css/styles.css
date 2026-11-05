@@ -74,3 +74,4 @@ fieldset{border:1px solid var(--border);border-radius:var(--radius);padding:1rem
 .spinner{width:1.5rem;height:1.5rem;border:3px solid #cbd5e1;border-top-color:var(--brand);border-radius:50%;animation:sp 1s linear infinite;margin:2rem auto}@keyframes sp{to{transform:rotate(360deg)}}
 .toast{position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);background:#0f172a;color:#fff;padding:.75rem 1.1rem;border-radius:12px;z-index:100;box-shadow:var(--shadow)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.pay-badges{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:1.2rem;margin-bottom:.4rem}.pay-badges img{height:36px;width:auto;border-radius:8px;display:block}
