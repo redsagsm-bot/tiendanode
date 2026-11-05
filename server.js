@@ -1105,6 +1105,24 @@ async function handle(req, res) {
   if (p.startsWith('/api/')) return handleApi(req, res, url);
   if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Método no permitido' });
   if (p.startsWith('/uploads/')) return serveUpload(req, res, p.slice(9));
+  if (p === '/robots.txt' || p === '/sitemap.xml') {
+    const fh = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+    const h = /^[A-Za-z0-9.:-]+$/.test(fh) ? fh : (/^[A-Za-z0-9.:-]+$/.test(host) ? host : '');
+    const base = publicBase() || (h ? (isHttps(req) ? 'https://' : 'http://') + h : '');
+    let body, type;
+    if (p === '/robots.txt') {
+      type = 'text/plain; charset=utf-8';
+      body = 'User-agent: *\nDisallow: /admin/\nDisallow: /api/\nDisallow: /carrito.html\nDisallow: /checkout.html\nDisallow: /gracias.html\nDisallow: /estado.html\n' + (base ? `\nSitemap: ${base}/sitemap.xml\n` : '');
+    } else {
+      type = 'application/xml; charset=utf-8';
+      const urls = ['/', '/productos.html', '/contacto.html'];
+      for (const pr of listProducts({})) urls.push('/producto.html?id=' + pr.id);
+      body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+        urls.map((u) => `<url><loc>${base}${u}</loc></url>`).join('\n') + '\n</urlset>\n';
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600' });
+    return res.end(req.method === 'HEAD' ? undefined : body);
+  }
   if (p === '/admin') { res.writeHead(301, { Location: '/admin/' }); return res.end(); }
   if (p.startsWith('/admin/')) return serveFile(req, res, ADMIN_DIR, p.slice(6));
   return serveFile(req, res, PUBLIC_DIR, p);
