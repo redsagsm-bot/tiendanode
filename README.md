@@ -56,6 +56,7 @@ docker build -t tienda . && docker run -p 3000:3000 -v tienda-data:/data tienda
 | `SEED_EJEMPLOS=0` | No cargar los productos de ejemplo | — |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`, `PAYPAL_MODE` | PayPal (`sandbox` o `live`). Si están definidas aquí, el panel no las puede editar | — |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Correo de confirmación (opcional) | puerto `587` |
+| `TIDIO_KEY` | Public Key de Tidio para mostrar el chat en la tienda (opcional) | — |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Avisos al dueño por Telegram: pedido nuevo, pago confirmado, stock bajo (opcional) | — |
 | `PAYPAL_MOCK=1` | PayPal simulado. **Solo funciona con `NODE_ENV=test`** | — |
 

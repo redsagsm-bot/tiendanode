@@ -619,14 +619,19 @@ async function sendDeliveryEmail(orderId, force = false) {
 }
 
 // ---------------------------------------------------------------- HTTP helpers
+// Chat de Tidio (opcional): TIDIO_KEY es la "Public Key" del panel de Tidio (no es secreta).
+const TIDIO_KEY = /^[A-Za-z0-9]{16,64}$/.test(process.env.TIDIO_KEY || '') ? process.env.TIDIO_KEY : '';
+const TD = TIDIO_KEY ? ' https://*.tidio.co https://*.tidio.com' : '';
+const TDW = TIDIO_KEY ? ' wss://*.tidio.co wss://*.tidio.com' : '';
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' https://www.paypal.com https://*.paypal.com https://*.paypalobjects.com",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: https://*.paypal.com https://*.paypalobjects.com",
-  "connect-src 'self' https://*.paypal.com https://*.paypalobjects.com",
-  'frame-src https://*.paypal.com https://*.paypalobjects.com',
-  "font-src 'self' data:",
+  "script-src 'self' https://www.paypal.com https://*.paypal.com https://*.paypalobjects.com" + TD,
+  "style-src 'self' 'unsafe-inline'" + TD,
+  "img-src 'self' data: blob: https://*.paypal.com https://*.paypalobjects.com" + TD,
+  "connect-src 'self' https://*.paypal.com https://*.paypalobjects.com" + TD + TDW,
+  'frame-src https://*.paypal.com https://*.paypalobjects.com' + TD,
+  "font-src 'self' data:" + TD,
+  "media-src 'self'" + TD,
   "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
 ].join('; ');
 function secHeaders(res) {
@@ -698,7 +703,7 @@ const admin = (m, p, h, o = {}) => route(m, p, h, { ...o, admin: true });
 route('GET', '/api/config', () => {
   const c = storeConfig(), pp = paypalConfig();
   return { ...c, currency: 'MXN', paypal: { enabled: pp.enabled, clientId: PAYPAL_MOCK ? 'test' : pp.enabled ? pp.clientId : '', mode: pp.mode, mock: PAYPAL_MOCK },
-    estados: ESTADOS, reservaMinutos: RESERVA_MIN };
+    estados: ESTADOS, reservaMinutos: RESERVA_MIN, tidio: TIDIO_KEY };
 });
 route('GET', '/api/productos', ({ query }) => ({ productos: listProducts(query) }));
 route('GET', '/api/productos/:id', ({ params }) => {
@@ -1154,7 +1159,7 @@ server.listen(PORT, HOST, () => {
   const a = server.address();
   const pp = paypalConfig();
   console.log(`[tienda] Escuchando en http://${HOST}:${a.port}  (DATA_DIR=${DATA_DIR})`);
-  console.log(`[tienda] PayPal: ${PAYPAL_MOCK ? 'SIMULADO (solo pruebas)' : pp.enabled ? 'activo (' + pp.mode + ')' : 'no configurado'} | Correo SMTP: ${smtpConfig() ? 'configurado' : 'no configurado (opcional)'} | Telegram: ${telegramEnabled() ? 'configurado' : 'no configurado (opcional)'}`);
+  console.log(`[tienda] PayPal: ${PAYPAL_MOCK ? 'SIMULADO (solo pruebas)' : pp.enabled ? 'activo (' + pp.mode + ')' : 'no configurado'} | Correo SMTP: ${smtpConfig() ? 'configurado' : 'no configurado (opcional)'} | Telegram: ${telegramEnabled() ? 'configurado' : 'no configurado (opcional)'} | Tidio: ${TIDIO_KEY ? 'activo' : 'no configurado (opcional)'}`);
 });
 function shutdown() {
   console.log('[tienda] Cerrando...');
