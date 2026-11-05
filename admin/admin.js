@@ -343,12 +343,19 @@
       h('img', { src: '/uploads/' + b, alt: '', style: { height: '70px', borderRadius: '8px', display: 'block' } }),
       h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { banners.splice(i, 1); drawBanners(); show(m, 'Imagen quitada: pulsa "Guardar ajustes"', 'info'); }, text: 'Quitar' })))); };
     drawBanners();
-    const banFile = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif' });
+    const banFile = h('input', { type: 'file', multiple: true, accept: 'image/png,image/jpeg,image/webp,image/gif' });
     banFile.addEventListener('change', async () => {
-      if (!banFile.files[0]) return;
-      if (banners.length >= 6) { show(m, 'Máximo 6 imágenes en el banner'); banFile.value = ''; return; }
-      try { const r = await api('/api/admin/upload', 'POST', await fileToB64(banFile.files[0])); banners.push(r.url.replace('/uploads/', '')); drawBanners(); banFile.value = ''; show(m, 'Imagen agregada: pulsa "Guardar ajustes"', 'ok'); }
-      catch (e) { show(m, e.message); banFile.value = ''; }
+      const files = [...banFile.files]; banFile.value = '';
+      if (!files.length) return;
+      let added = 0, err = '';
+      for (const file of files) {
+        if (banners.length >= 6) { err = 'Máximo 6 imágenes en el banner'; break; }
+        try { const r = await api('/api/admin/upload', 'POST', await fileToB64(file)); banners.push(r.url.replace('/uploads/', '')); added++; drawBanners(); }
+        catch (e) { err = file.name + ': ' + e.message; }
+      }
+      if (added && !err) show(m, added + (added === 1 ? ' imagen agregada' : ' imágenes agregadas') + ': pulsa "Guardar ajustes"', 'ok');
+      else if (added) show(m, added + ' agregada(s). ' + err + '. Pulsa "Guardar ajustes"', 'info');
+      else show(m, err);
     });
     f.ppMode.value = s.paypal.mode;
     if (s.paypal.fromEnv) [f.ppMode, f.ppClient, f.ppSecret].forEach((x) => { x.disabled = true; });
@@ -359,7 +366,7 @@
         h('div', {},
           h('div', { class: 'panel' }, h('h2', { text: 'Tienda' }), field('Nombre de la tienda', f.storeName), field('Logotipo (PNG, JPG, WEBP o GIF, máx. 8 MB)', logoFile), logoPrev,
             h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { logo = ''; clear(logoPrev); show(m, 'Logotipo quitado: pulsa "Guardar ajustes"', 'info'); }, text: 'Quitar logotipo' }),
-            field('Banner de la página de inicio: agrega hasta 6 imágenes y se mueven solas (PNG, JPG, WEBP o GIF, máx. 8 MB c/u; ideal 1600×500)', banFile), banList,
+            field('Banner de la página de inicio: agrega hasta 6 imágenes (puedes elegir varias a la vez) y se mueven solas (PNG, JPG, WEBP o GIF, máx. 8 MB c/u; ideal 1600×500)', banFile), banList,
             h('div', { class: 'row two' }, field('Correo de contacto', f.contactEmail), field('WhatsApp (con lada, ej. 5215512345678)', f.whatsapp)),
             field('Costo de envío para SIM física (MXN)', f.shippingCost), field('Instrucciones para transferencia / depósito', f.bankInfo)),
           h('div', { class: 'panel mt' }, h('h2', { text: 'PayPal' }),
