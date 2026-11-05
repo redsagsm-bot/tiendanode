@@ -92,7 +92,7 @@
     const y = $('#year'); if (y) y.textContent = String(new Date().getFullYear());
     config().then((c) => {
       document.querySelectorAll('[data-store-name]').forEach((e) => { e.textContent = c.storeName; });
-      const hb = document.querySelector('.hero-banner'); if (hb && c.banner) { hb.append(h('img', { src: '/uploads/' + c.banner, alt: '' })); hb.hidden = false; }
+      const hb = document.querySelector('.hero-banner'); const bl = c.banners && c.banners.length ? c.banners : c.banner ? [c.banner] : []; if (hb && bl.length) { App.carousel(hb, bl); hb.hidden = false; }
       if (c.logo) document.querySelectorAll('.brand .logo').forEach((e) => { e.classList.add('has-img'); e.textContent = ''; e.append(h('img', { src: '/uploads/' + c.logo, alt: '' })); });
       if (document.title.includes('{tienda}')) document.title = document.title.replace('{tienda}', c.storeName);
       if (c.whatsapp) {
@@ -115,3 +115,19 @@ App.loadPayPal = (clientId) => new Promise((resolve, reject) => {
   s.onerror = reject;
   document.head.append(s);
 });
+
+// Carrusel del banner de inicio: cambia solo cada 5 s, se pausa al pasar el mouse y tiene puntos para navegar.
+App.carousel = (el, files) => {
+  const h = App.h, slides = files.map((f, i) => h('img', { src: '/uploads/' + f, alt: '', class: 'slide' + (i === 0 ? ' on' : ''), loading: i === 0 ? 'eager' : 'lazy' }));
+  el.append(...slides);
+  if (slides.length < 2) return;
+  let cur = 0, timer = null;
+  const dots = slides.map((_, i) => h('button', { type: 'button', class: 'dot' + (i === 0 ? ' on' : ''), 'aria-label': 'Imagen ' + (i + 1), onclick: () => { go(i); start(); } }));
+  el.append(h('div', { class: 'dots' }, ...dots));
+  const go = (i) => { slides[cur].classList.remove('on'); dots[cur].classList.remove('on'); cur = (i + slides.length) % slides.length; slides[cur].classList.add('on'); dots[cur].classList.add('on'); };
+  const stop = () => { if (timer) clearInterval(timer); timer = null; };
+  const start = () => { stop(); if (!matchMedia('(prefers-reduced-motion: reduce)').matches) timer = setInterval(() => go(cur + 1), 5000); };
+  el.addEventListener('mouseenter', stop); el.addEventListener('mouseleave', start);
+  document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
+  start();
+};

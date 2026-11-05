@@ -20,7 +20,10 @@ img{max-width:100%;display:block}a{color:var(--brand)}a:hover{color:var(--brand-
 @media(min-width:820px){.nav-toggle{display:none}.menu{display:flex;position:static;flex-direction:row;border:0;padding:0;background:none;gap:.25rem}}
 main{min-height:60vh}
 .hero{background:radial-gradient(1200px 500px at 10% -10%,#dbe7ff,transparent),linear-gradient(135deg,#0b5fff 0%,#0846c2 55%,#00a389 100%);color:#fff;padding:3.5rem 0 4rem}
-.hero-banner{margin:0 0 1.5rem}.hero-banner img{width:100%;max-height:340px;object-fit:cover;border-radius:var(--radius);box-shadow:var(--shadow)}
+.hero-banner{margin:0 0 1.5rem;position:relative}.hero-banner img{width:100%;max-height:340px;object-fit:cover;border-radius:var(--radius);box-shadow:var(--shadow);display:block}
+.hero-banner img.slide{position:absolute;inset:0;height:100%;opacity:0;transition:opacity .8s}.hero-banner img.slide.on{opacity:1;position:relative}
+.hero-banner .dots{position:absolute;left:0;right:0;bottom:.6rem;display:flex;justify-content:center;gap:.4rem}
+.hero-banner .dot{width:.7rem;height:.7rem;padding:0;border-radius:50%;border:2px solid #fff;background:rgba(15,23,42,.35);cursor:pointer}.hero-banner .dot.on{background:#fff}
 .hero h1{font-size:clamp(1.9rem,5vw,3rem);line-height:1.15;margin:.2rem 0 1rem}.hero p{font-size:1.1rem;max-width:40rem;opacity:.95}
 .hero .actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.5rem}.hero .pill{display:inline-block;background:rgba(255,255,255,.18);padding:.3rem .8rem;border-radius:999px;font-size:.85rem;font-weight:600}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;border:0;border-radius:12px;padding:.8rem 1.2rem;font-weight:700;font-size:1rem;cursor:pointer;text-decoration:none;background:var(--brand);color:#fff;transition:transform .05s,background .2s}
