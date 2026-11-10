@@ -29,7 +29,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const opt = (value, title, desc, checked) => h('label', { class: 'radio-card' }, h('input', { type: 'radio', name: 'payment', value, checked }),
     h('span', {}, h('strong', { text: title }), h('br'), h('span', { class: 'muted', text: desc })));
   if (cfg.paypal && cfg.paypal.enabled) pm.append(opt('paypal', 'PayPal o tarjeta', 'Pago inmediato y seguro. Tu eSIM se entrega al instante.', true));
-  pm.append(opt('manual', 'Transferencia SPEI / depósito (por WhatsApp)', 'Te damos los datos bancarios; envía tu comprobante por WhatsApp y confirmamos tu pedido.', !(cfg.paypal && cfg.paypal.enabled)));
+  if (cfg.stripe && cfg.stripe.enabled) pm.append(opt('stripe', 'Tarjeta de crédito o débito (Stripe)', 'Pago seguro con tarjeta. Tu eSIM se entrega al instante.', !(cfg.paypal && cfg.paypal.enabled)));
+  pm.append(opt('manual', 'Transferencia SPEI / depósito (por WhatsApp)', 'Te damos los datos bancarios; envía tu comprobante por WhatsApp y confirmamos tu pedido.', !((cfg.paypal && cfg.paypal.enabled) || (cfg.stripe && cfg.stripe.enabled))));
 
   // Prellenado
   try { const saved = JSON.parse(localStorage.getItem('cliente_v1') || '{}'); for (const k of ['name', 'email', 'phone']) if (saved[k]) form.elements[k].value = saved[k]; } catch { /* */ }
@@ -52,7 +53,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       Cart.clear();
       const link = `gracias.html?n=${encodeURIComponent(r.number)}&t=${encodeURIComponent(r.token)}`;
       if (r.paymentMethod === 'paypal') { form.classList.add('hidden'); startPayPal(r, link); }
-      else location.href = link;
+      else if (r.paymentMethod === 'stripe') {
+        const s = await api('/api/stripe/crear', { method: 'POST', body: { number: r.number, token: r.token } });
+        location.href = s.url;
+      } else location.href = link;
     } catch (err) {
       notice(msg, err.message);
       btn.disabled = false; btn.textContent = 'Confirmar pedido';

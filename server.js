@@ -10,6 +10,7 @@ const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { sendMail } = require('./lib/smtp');
 const { createPayPalClient, createMockPayPalClient } = require('./lib/paypal');
+const { createStripeClient, verifyWebhook } = require('./lib/stripe');
 
 // ---------------------------------------------------------------- Config
 const ROOT = __dirname;
@@ -86,6 +87,8 @@ CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT,
   message TEXT NOT NULL, created_at TEXT NOT NULL);
 `);
+if (!db.prepare('PRAGMA table_info(orders)').all().some((c) => c.name === 'stripe_session_id')) db.exec('ALTER TABLE orders ADD COLUMN stripe_session_id TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_stripe ON orders(stripe_session_id)');
 
 const nowIso = () => new Date().toISOString();
 class HttpError extends Error { constructor(status, msg, extra) { super(msg); this.status = status; this.extra = extra; } }
@@ -125,6 +128,17 @@ function storeConfig() {
     shippingCost: Number(setting('shipping_cost', String(Math.round(num(process.env.SHIPPING_COST, 99) * 100)))),
     bankInfo: setting('bank_info', DEFAULT_BANK),
   };
+}
+const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+const stripeEnabled = () => /^(sk|rk)_(test|live)_/.test(STRIPE_KEY);
+let stripeClient = null;
+function stripe() {
+  if (!stripeEnabled()) fail(503, 'Stripe no está configurado');
+  return (stripeClient ||= createStripeClient({ secretKey: STRIPE_KEY }));
+}
+async function stripeCall(fn) {
+  try { return await fn(stripe()); } catch (e) { if (e instanceof HttpError) throw e; console.error('[stripe]', e.message); fail(502, 'No se pudo comunicar con Stripe. Intenta de nuevo.'); }
 }
 function paypalConfig() {
   const fromEnv = !!(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_SECRET);
@@ -417,7 +431,7 @@ function createOrder(b) {
     const row = db.prepare('SELECT id FROM orders WHERE number = ?').get(res.number);
     if (row && telegramEnabled()) {
       const s = orderSummary(row.id);
-      const how = res.paymentMethod === 'paypal' ? 'pago con PayPal pendiente' : 'transferencia/manual: esperando comprobante';
+      const how = res.paymentMethod === 'paypal' ? 'pago con PayPal pendiente' : res.paymentMethod === 'stripe' ? 'pago con Stripe pendiente' : 'transferencia/manual: esperando comprobante';
       notifyAdmin(`Pedido nuevo ${res.number}\n${s.o.name} - ${s.total}\n${how}\n${s.lines}`);
     }
   } catch (e) { console.error('[telegram]', e.message); }
@@ -435,8 +449,9 @@ function createOrderTx(b) {
   const name = str(c.name, { min: 2, max: 100, name: 'Nombre' });
   const email = str(c.email, { min: 5, max: 160, name: 'Correo', re: EMAIL_RE }).toLowerCase();
   const phone = str(c.phone, { min: 10, max: 20, name: 'Teléfono / WhatsApp', re: PHONE_RE });
-  const method = b.payment === 'paypal' ? 'paypal' : b.payment === 'manual' ? 'manual' : fail(400, 'Método de pago inválido');
+  const method = b.payment === 'paypal' ? 'paypal' : b.payment === 'stripe' ? 'stripe' : b.payment === 'manual' ? 'manual' : fail(400, 'Método de pago inválido');
   if (method === 'paypal' && !paypalConfig().enabled) fail(400, 'PayPal no está disponible. Elige pago por transferencia/WhatsApp.');
+  if (method === 'stripe' && !stripeEnabled()) fail(400, 'Stripe no está disponible. Elige otro método de pago.');
   expireOrders();
   return tx(() => {
     const products = [];
@@ -464,9 +479,10 @@ function createOrderTx(b) {
     const shipping = needsShipping ? cfg.shippingCost : 0;
     const total = subtotal + shipping;
     if (method === 'paypal' && total < 100) fail(400, 'El total mínimo para PayPal es $1.00 MXN');
+    if (method === 'stripe' && total < 1000) fail(400, 'El total mínimo para pagar con tarjeta es $10.00 MXN');
     const cust = db.prepare(`INSERT INTO customers(email, name, phone, created_at) VALUES(?,?,?,?)
       ON CONFLICT(email) DO UPDATE SET name = excluded.name, phone = excluded.phone RETURNING id`).get(email, name, phone, nowIso());
-    const expires = Date.now() + (method === 'paypal' ? RESERVA_MIN * 60e3 : RESERVA_MANUAL_H * 3600e3);
+    const expires = Date.now() + (method !== 'manual' ? RESERVA_MIN * 60e3 : RESERVA_MANUAL_H * 3600e3);
     const number = orderNumber();
     const token = crypto.randomBytes(24).toString('base64url');
     const o = db.prepare(`INSERT INTO orders(number, token, customer_id, name, email, phone, address, subtotal, shipping, total, status,
@@ -712,6 +728,7 @@ const admin = (m, p, h, o = {}) => route(m, p, h, { ...o, admin: true });
 route('GET', '/api/config', () => {
   const c = storeConfig(), pp = paypalConfig();
   return { ...c, currency: 'MXN', paypal: { enabled: pp.enabled, clientId: PAYPAL_MOCK ? 'test' : pp.enabled ? pp.clientId : '', mode: pp.mode, mock: PAYPAL_MOCK },
+    stripe: { enabled: stripeEnabled() },
     estados: ESTADOS, reservaMinutos: RESERVA_MIN, tidio: TIDIO_KEY };
 });
 route('GET', '/api/productos', ({ query }) => ({ productos: listProducts(query) }));
@@ -757,6 +774,75 @@ route('POST', '/api/paypal/capturar', async ({ body }) => {
   const r = confirmPaid(o.id, { captureId: v.captureId, by: 'PayPal' });
   return { ok: true, already: r.already, status: r.order.status };
 });
+// ---- Stripe Checkout
+function stripeBase(req) {
+  const pub = publicBase();
+  if (pub) return pub;
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  return `${isHttps(req) ? 'https' : 'http'}://${host}`;
+}
+function verifyStripeSession(sess, o) {
+  if (!sess || sess.id !== o.stripe_session_id) return { ok: false, reason: 'sesión distinta' };
+  if (sess.client_reference_id !== o.number) return { ok: false, reason: 'pedido distinto' };
+  if (sess.payment_status !== 'paid') return { ok: false, reason: 'estado ' + sess.payment_status };
+  if (String(sess.currency).toLowerCase() !== 'mxn') return { ok: false, reason: 'moneda distinta' };
+  if (sess.amount_total !== o.total) return { ok: false, reason: 'monto distinto al total del pedido' };
+  return { ok: true, ref: typeof sess.payment_intent === 'string' ? sess.payment_intent : sess.id };
+}
+route('POST', '/api/stripe/crear', async ({ body, req }) => {
+  const o = orderByToken(body.number, body.token);
+  if (o.payment_method !== 'stripe') fail(400, 'Este pedido no usa Stripe');
+  if (o.status !== 'pendiente_pago') fail(409, 'El pedido ya no está pendiente de pago');
+  if (o.expires_at < Date.now()) fail(409, 'La reserva de tu pedido expiró. Vuelve a hacer tu pedido.');
+  if (o.stripe_session_id) {
+    const prev = await stripeCall((c) => c.retrieveCheckoutSession(o.stripe_session_id)).catch(() => null);
+    if (prev && prev.status === 'open' && prev.url) return { url: prev.url };
+  }
+  const base = stripeBase(req);
+  const link = `${base}/gracias.html?n=${encodeURIComponent(o.number)}&t=${encodeURIComponent(o.token)}`;
+  const items = db.prepare('SELECT * FROM order_items WHERE order_id = ? ORDER BY id').all(o.id);
+  const line_items = items.map((it) => ({ quantity: it.qty, price_data: { currency: 'mxn', unit_amount: it.unit_price, product_data: { name: String(it.name).slice(0, 200) } } }));
+  if (o.shipping > 0) line_items.push({ quantity: 1, price_data: { currency: 'mxn', unit_amount: o.shipping, product_data: { name: 'Envío' } } });
+  const sess = await stripeCall((c) => c.createCheckoutSession({
+    mode: 'payment', line_items, client_reference_id: o.number, customer_email: o.email,
+    metadata: { order_number: o.number }, payment_intent_data: { metadata: { order_number: o.number } },
+    success_url: `${link}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${base}/gracias.html?n=${encodeURIComponent(o.number)}&t=${encodeURIComponent(o.token)}&cancelado=1`,
+  }));
+  db.prepare('UPDATE orders SET stripe_session_id = ? WHERE id = ?').run(sess.id, o.id);
+  return { url: sess.url };
+});
+// El cliente vuelve de Stripe: se consulta la sesión a Stripe (no se confía en la URL) y se confirma el pago.
+route('POST', '/api/stripe/confirmar', async ({ body }) => {
+  let o = orderByToken(body.number, body.token);
+  if (o.paid_at) return { ok: true, already: true, status: o.status };
+  if (!o.stripe_session_id) fail(400, 'Este pedido no tiene un pago de Stripe iniciado');
+  const sess = await stripeCall((c) => c.retrieveCheckoutSession(o.stripe_session_id));
+  if (sess.payment_status !== 'paid') return { ok: false, pending: true, status: o.status };
+  o = db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id);
+  const v = verifyStripeSession(sess, o);
+  if (!v.ok) {
+    db.prepare("UPDATE orders SET notes = COALESCE(notes || char(10), '') || ? WHERE id = ?").run(`Stripe rechazado: ${v.reason} (${nowIso()})`, o.id);
+    fail(402, 'No se pudo verificar el pago: ' + v.reason);
+  }
+  const r = confirmPaid(o.id, { captureId: null, by: 'Stripe' });
+  return { ok: true, already: r.already, status: r.order.status };
+});
+// Webhook de Stripe: respaldo por si el cliente cierra el navegador antes de volver a la tienda.
+route('POST', '/api/stripe/webhook', async ({ rawBody, req }) => {
+  if (!STRIPE_WEBHOOK_SECRET) fail(503, 'STRIPE_WEBHOOK_SECRET no configurado');
+  if (!verifyWebhook(rawBody, req.headers['stripe-signature'], STRIPE_WEBHOOK_SECRET)) fail(400, 'Firma inválida');
+  let ev; try { ev = JSON.parse(rawBody.toString('utf8')); } catch { fail(400, 'JSON inválido'); }
+  const sess = ev && ev.data && ev.data.object;
+  if (ev.type === 'checkout.session.completed' || ev.type === 'checkout.session.async_payment_succeeded') {
+    const o = sess && db.prepare('SELECT * FROM orders WHERE stripe_session_id = ?').get(sess.id);
+    if (o && !o.paid_at) {
+      const v = verifyStripeSession(sess, o);
+      if (v.ok) confirmPaid(o.id, { by: 'Stripe (webhook)' });
+      else db.prepare("UPDATE orders SET notes = COALESCE(notes || char(10), '') || ? WHERE id = ?").run(`Stripe webhook rechazado: ${v.reason} (${nowIso()})`, o.id);
+    }
+  }
+  return { received: true };
+}, { raw: true });
 route('POST', '/api/contacto', ({ body, ip }) => {
   rateLimit('contact:' + ip, IS_TEST ? 100 : 5, 10 * 60e3);
   const name = str(body.name, { min: 2, max: 100, name: 'Nombre' });
@@ -946,7 +1032,7 @@ const getOrder = (id) => db.prepare('SELECT * FROM orders WHERE id = ?').get(id)
 admin('GET', '/api/admin/pedidos/:id', ({ params }) => ({ pedido: orderAdmin(getOrder(params.id)), enlace: statusLink(getOrder(params.id)) }));
 admin('POST', '/api/admin/pedidos/:id/confirmar', ({ params, session }) => {
   const o = getOrder(params.id);
-  if (o.payment_method !== 'manual' && !o.paid_at) fail(400, 'Los pedidos PayPal se confirman automáticamente al capturar el pago');
+  if (o.payment_method !== 'manual' && !o.paid_at) fail(400, 'Los pedidos PayPal y Stripe se confirman automáticamente al pagar');
   const r = confirmPaid(o.id, { by: 'admin ' + session.username });
   const filled = r.already ? fillMissingCodes(o.id) : 0;
   return { ok: true, already: r.already, filled, problems: r.problems || [], pedido: orderAdmin(getOrder(o.id)) };
@@ -1148,7 +1234,8 @@ async function handleApi(req, res, url) {
       if (oh !== req.headers.host && oh !== req.headers['x-forwarded-host']) fail(403, 'Origen no permitido');
     }
     const raw = await readBody(req, r.opts.limit || JSON_LIMIT);
-    if (raw.length) {
+    if (r.opts.raw) ctx.rawBody = raw;
+    else if (raw.length) {
       if (!/application\/json/i.test(req.headers['content-type'] || '')) fail(415, 'Se esperaba JSON');
       try { ctx.body = JSON.parse(raw.toString('utf8')); } catch { fail(400, 'JSON inválido'); }
       if (!ctx.body || typeof ctx.body !== 'object' || Array.isArray(ctx.body)) fail(400, 'JSON inválido');
