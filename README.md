@@ -5,7 +5,7 @@ Tienda en línea en español (es-MX), con precios en MXN, para vender **eSIM** (
 - Backend: Node.js 22 o superior, solo con módulos incluidos (`node:http`, `node:crypto`, `node:sqlite`). No necesita `npm install`.
 - Frontend: HTML, CSS y JavaScript sin compilación.
 - Base de datos: SQLite en `DATA_DIR`. Por defecto es `./data` y se crea sola.
-- Pagos: PayPal (Orders v2: creación y captura en el servidor). Si PayPal no está configurado, se ofrece pago manual por transferencia o WhatsApp.
+- Pagos: PayPal (Orders v2: creación y captura en el servidor) y Stripe Checkout (tarjeta, sin SDK). Si PayPal no está configurado, se ofrece pago manual por transferencia o WhatsApp.
 
 > Se cargan 8 productos **[EJEMPLO]** solo si la base de datos está vacía. Edítalos o bórralos desde el panel.
 
@@ -55,6 +55,7 @@ docker build -t tienda . && docker run -p 3000:3000 -v tienda-data:/data tienda
 | `TZ_OFFSET_HORAS` | Desfase horario de la gráfica del dashboard | `-6` |
 | `SEED_EJEMPLOS=0` | No cargar los productos de ejemplo | — |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`, `PAYPAL_MODE` | PayPal (`sandbox` o `live`). Si están definidas aquí, el panel no las puede editar | — |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Pago con tarjeta por Stripe Checkout (`sk_test_...` o `sk_live_...` y `whsec_...`). Webhook: `https://TU-DOMINIO/api/stripe/webhook`, evento `checkout.session.completed` | — |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Correo de confirmación (opcional) | puerto `587` |
 | `TIDIO_KEY` | Public Key de Tidio para mostrar el chat en la tienda (opcional) | — |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Avisos al dueño por Telegram: pedido nuevo, pago confirmado, stock bajo (opcional) | — |

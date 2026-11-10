@@ -261,7 +261,7 @@
     const tbody = h('tbody');
     for (const o of pedidos) tbody.append(h('tr', {}, h('td', {}, h('button', { class: 'btn sm secondary', type: 'button', onclick: () => orderDialog(o.id), text: o.number })),
       h('td', { text: date(o.createdAt) }), h('td', {}, o.name, h('div', { class: 'muted', text: o.email })), h('td', { text: money(o.total) }),
-      h('td', { text: o.paymentMethod === 'paypal' ? 'PayPal' : 'Transferencia' }), h('td', { text: o.statusLabel })));
+      h('td', { text: o.paymentMethod === 'paypal' ? 'PayPal' : o.paymentMethod === 'stripe' ? 'Stripe' : 'Transferencia' }), h('td', { text: o.statusLabel })));
     clear(main).append(h('h1', { text: 'Pedidos' }),
       h('form', { class: 'toolbar', onsubmit: (e) => { e.preventDefault(); pedQ = q.value.trim(); pedStatus = st.value; go('pedidos'); } }, q, st, h('button', { class: 'btn sm', type: 'submit', text: 'Buscar' })),
       h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Pedido', 'Fecha', 'Cliente', 'Total', 'Pago', 'Estado'].map((t) => h('th', { text: t })))), tbody)),
@@ -290,7 +290,7 @@
       actions.append(h('button', { class: 'btn sm danger', type: 'button', onclick: () => { const note = prompt('Nota de reembolso (hazlo primero en PayPal o por transferencia):'); if (note) act('reembolso', { note }, 'Marcado como reembolsado'); }, text: 'Marcar reembolsado' }));
     }
     const body = h('div', {},
-      h('p', {}, h('strong', { text: o.statusLabel }), ' · ', o.paymentMethod === 'paypal' ? 'PayPal' : 'Transferencia/WhatsApp', ' · Creado ', date(o.createdAt), o.paidAt ? ' · Pagado ' + date(o.paidAt) : ''),
+      h('p', {}, h('strong', { text: o.statusLabel }), ' · ', o.paymentMethod === 'paypal' ? 'PayPal' : o.paymentMethod === 'stripe' ? 'Stripe' : 'Transferencia/WhatsApp', ' · Creado ', date(o.createdAt), o.paidAt ? ' · Pagado ' + date(o.paidAt) : ''),
       h('p', {}, o.name, ' · ', h('a', { href: 'mailto:' + o.email, text: o.email }), ' · ', o.phone),
       a ? h('p', { text: `Envío: ${a.street}, Col. ${a.colonia}, C.P. ${a.cp}, ${a.city}, ${a.state}${a.refs ? ' (' + a.refs + ')' : ''}` }) : null,
       o.tracking ? h('p', { text: `Guía: ${o.tracking} ${o.shipCarrier}` }) : null,
