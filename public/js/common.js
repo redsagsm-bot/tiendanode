@@ -100,6 +100,8 @@
         const f = $('#footer-wa'); if (f) f.append(h('a', { href: waLink(c.whatsapp), target: '_blank', rel: 'noopener', text: 'WhatsApp: +' + c.whatsapp }));
       }
       if (c.tidio && !document.querySelector('script[data-tidio]')) document.head.append(h('script', { src: 'https://code.tidio.co/' + encodeURIComponent(c.tidio) + '.js', async: '', 'data-tidio': '' }));
+      const fb = $('#footer-email');
+      if (fb && fb.parentElement) fb.parentElement.append(h('p', {}, h('a', { href: 'https://www.facebook.com/profile.php?id=61596325626434', target: '_blank', rel: 'noopener noreferrer', text: 'Facebook' })));
       const fe = $('#footer-email'); if (fe && c.contactEmail) fe.append(h('a', { href: 'mailto:' + c.contactEmail, text: c.contactEmail }));
     });
   }
