@@ -59,6 +59,7 @@ docker build -t tienda . && docker run -p 3000:3000 -v tienda-data:/data tienda
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Correo de confirmación (opcional) | puerto `587` |
 | `TIDIO_KEY` | Public Key de Tidio para mostrar el chat en la tienda (opcional) | — |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Avisos al dueño por Telegram: pedido nuevo, pago confirmado, stock bajo (opcional) | — |
+| `VISIT_NOTIFY_COOLDOWN_MIN` | Minutos entre avisos de visita por la misma IP (0 = avisar todas las visitas) | 10 |
 | `PAYPAL_MOCK=1` | PayPal simulado. **Solo funciona con `NODE_ENV=test`** | — |
 
 El *secret* de PayPal y la contraseña SMTP nunca se envían al navegador. En el panel aparecen enmascarados.

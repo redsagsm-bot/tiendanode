@@ -169,6 +169,22 @@ function notifyAdmin(text) {
   if (!telegramEnabled()) return;
   setImmediate(() => tgSend(text).catch((e) => console.error('[telegram]', e.message)));
 }
+// Aviso de visitas: una notificación por visitante (IP) cada VISIT_NOTIFY_COOLDOWN_MIN minutos (0 = todas las visitas).
+const VISIT_COOLDOWN = Math.max(0, Number(process.env.VISIT_NOTIFY_COOLDOWN_MIN ?? 10)) * 60000;
+const visitSeen = new Map();
+const BOT_UA = /bot|crawl|spider|slurp|facebookexternalhit|preview|monitor|uptime|curl|wget|healthcheck|railway/i;
+function notifyVisit(req, p) {
+  if (!telegramEnabled() || (req.method !== 'GET')) return;
+  if (!(p.endsWith('/') || p.endsWith('.html'))) return;
+  const ua = String(req.headers['user-agent'] || '');
+  if (!ua || BOT_UA.test(ua)) return;
+  const ip = clientIp(req), now = Date.now();
+  if (visitSeen.size > 5000) for (const [k, t] of visitSeen) if (t < now) visitSeen.delete(k);
+  if ((visitSeen.get(ip) || 0) > now) return;
+  visitSeen.set(ip, now + VISIT_COOLDOWN);
+  const ref = req.headers.referer ? `\nVino de: ${String(req.headers.referer).slice(0, 200)}` : '';
+  notifyAdmin(`Nueva visita en ${storeConfig().storeName}\nPágina: ${p}\nIP: ${ip}${ref}`);
+}
 function orderSummary(orderId) {
   const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
@@ -1211,6 +1227,7 @@ async function handle(req, res) {
   }
   if (p === '/admin') { res.writeHead(301, { Location: '/admin/' }); return res.end(); }
   if (p.startsWith('/admin/')) return serveFile(req, res, ADMIN_DIR, p.slice(6));
+  try { notifyVisit(req, p); } catch (e) { console.error('[visita]', e.message); }
   return serveFile(req, res, PUBLIC_DIR, p);
 }
 async function handleApi(req, res, url) {
