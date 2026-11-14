@@ -68,6 +68,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const cbox = h('div', { style: { gridColumn: '1 / -1' } });
         el.append(cbox);
         it.codes.forEach((c, i) => {
+          if (c.manual) { if (i === 0) cbox.append(h('p', { class: 'notice info', text: 'Pago confirmado. Te enviaremos tu eSIM (código y QR) por correo electrónico en breve.' })); return; }
           cbox.append(h('div', { class: 'panel', style: { margin: '.5rem 0' } },
             h('strong', { text: `eSIM ${i + 1} de ${it.codes.length}` }),
             c.qr ? h('img', { class: 'qr', src: c.qr, alt: 'Código QR de la eSIM' }) : null,
