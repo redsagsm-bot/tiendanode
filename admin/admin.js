@@ -387,6 +387,9 @@
           h('div', { class: 'panel mt' }, h('h2', { text: 'Avisos por Telegram' }),
             h('p', { class: s.telegram.configured ? 'notice ok' : 'notice', text: s.telegram.configured ? 'Configurado: recibirás avisos de pedidos nuevos, pagos confirmados y stock bajo.' : 'No configurado (opcional). Define TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en las variables de entorno.' }),
             h('div', { class: 'inline' }, h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await api('/api/admin/telegram-test', 'POST'); show(tgm, 'Mensaje de prueba enviado a Telegram', 'ok'); } catch (e) { show(tgm, e.message); } }, text: 'Enviar prueba' })), tgm),
+          h('div', { class: 'panel mt' }, h('h2', { text: 'Copia de seguridad' }),
+            h('p', { class: 'notice', text: 'Descarga la base de datos (productos, pedidos, ajustes) y las imágenes en un archivo .tar.gz. Guárdalo en un lugar seguro: contiene datos de clientes.' }),
+            h('a', { class: 'btn sm', href: '/api/admin/respaldo', download: '', text: 'Descargar respaldo' })),
           h('div', { class: 'mt' }, renderChangePassword(false)))));
   };
 

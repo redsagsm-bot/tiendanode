@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
+const os = require('node:os');
 const { sendMail } = require('./lib/smtp');
 const { createPayPalClient, createMockPayPalClient } = require('./lib/paypal');
 const { createStripeClient, verifyWebhook } = require('./lib/stripe');
@@ -1142,6 +1143,22 @@ admin('POST', '/api/admin/smtp-test', async ({ body }) => {
   try { await sendMail(smtp, { to, subject: `${storeConfig().storeName}: prueba de correo`, text: 'Si recibes este mensaje, el correo de la tienda funciona correctamente.' }); }
   catch (e) { fail(502, 'Error SMTP: ' + e.message); }
   return { ok: true };
+});
+admin('GET', '/api/admin/respaldo', ({ res }) => {
+  // Copia consistente de la base (VACUUM INTO) + carpeta de imágenes, empaquetadas en .tar.gz
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'respaldo-'));
+  const cleanup = () => fs.rmSync(tmp, { recursive: true, force: true });
+  try { db.exec(`VACUUM INTO '${path.join(tmp, 'store.db').replace(/'/g, "''")}'`); }
+  catch (e) { cleanup(); fail(500, 'No se pudo copiar la base de datos: ' + e.message); }
+  const args = ['-czf', '-', '-C', tmp, 'store.db'];
+  if (fs.existsSync(UPLOAD_DIR)) args.push('-C', DATA_DIR, 'uploads');
+  const tar = require('node:child_process').spawn('tar', args, { stdio: ['ignore', 'pipe', 'inherit'] });
+  const name = `respaldo-tienda-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+  res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
+  tar.stdout.pipe(res);
+  tar.on('error', (e) => { console.error('[respaldo]', e.message); res.destroy(); cleanup(); });
+  tar.on('close', cleanup);
+  res.on('close', () => { tar.kill(); });
 });
 admin('POST', '/api/admin/telegram-test', async () => {
   if (!telegramEnabled()) fail(400, 'Telegram no configurado. Define TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en Railway.');
