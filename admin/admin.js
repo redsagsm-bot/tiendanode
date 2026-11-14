@@ -232,6 +232,11 @@
       try { const r = await api('/api/admin/inventario', 'POST', { product_id: Number(invProduct), ...payload }); toast(`Agregados: ${r.added}. Duplicados ignorados: ${r.duplicates}`); go('inventario'); }
       catch (e) { show(m, e.message); }
     };
+    const manualQty = h('input', { type: 'number', min: '1', max: '1000', value: '50' });
+    const sendManual = async (extra) => {
+      try { const r = await api('/api/admin/inventario-manual', 'POST', { qty: Number(manualQty.value), ...extra }); toast(`Cupos agregados: ${r.added} (${r.products} producto/s)`); go('inventario'); }
+      catch (e) { show(m, e.message); }
+    };
     const tbody = h('tbody');
     for (const c of codigos) tbody.append(h('tr', {}, h('td', { text: c.code, style: { fontFamily: 'monospace', wordBreak: 'break-all' } }), h('td', { text: c.status + (c.hasQr ? ' · QR' : '') }), h('td', { text: c.order || '—' }), h('td', { text: date(c.createdAt) }),
       h('td', {}, c.status === 'disponible' ? h('button', { class: 'btn sm danger', type: 'button', onclick: async () => { if (!confirm('¿Borrar este código?')) return; try { await api('/api/admin/inventario/' + c.id, 'DELETE'); go('inventario'); } catch (e) { alert(e.message); } }, text: 'Borrar' }) : null)));
@@ -243,6 +248,12 @@
           h('button', { class: 'btn', type: 'button', onclick: async () => {
             try { const payload = { code: code.value.trim(), lpa: lpa.value.trim() }; if (qr.files[0]) payload.qr = await fileToB64(qr.files[0]); await send(payload); } catch (e) { show(m, e.message); }
           }, text: 'Agregar código' })),
+        h('div', { class: 'panel' }, h('h2', { text: 'Cupos de entrega manual' }),
+          h('p', { class: 'muted', text: 'Suma stock sin códigos reales: al venderse, el cliente ve "te enviaremos tu eSIM por correo" y tú le mandas el código.' }),
+          manualQty,
+          h('div', { class: 'inline' },
+            h('button', { class: 'btn sm', type: 'button', onclick: () => sendManual({ product_id: Number(invProduct) }), text: 'Agregar a este producto' }),
+            h('button', { class: 'btn sm secondary', type: 'button', onclick: () => confirm('¿Agregar esa cantidad a TODOS los productos eSIM?') && sendManual({}), text: 'Agregar a todos los eSIM' }))),
         h('div', { class: 'panel' }, h('h2', { text: 'Carga masiva / CSV' }), field('Códigos', bulk), field('O importa un archivo CSV (columnas: codigo,lpa)', csv),
           h('button', { class: 'btn', type: 'button', onclick: () => send({ bulk: bulk.value }), text: 'Agregar en lote' }))),
       m, h('h2', { class: 'mt', text: `Códigos (${codigos.length})` }),

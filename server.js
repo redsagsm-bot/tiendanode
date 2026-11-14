@@ -589,8 +589,11 @@ function fillMissingCodes(orderId) {
   });
 }
 
+// Cupos de entrega manual: ocupan inventario (stock) pero el código real se envía por correo al cliente.
+const MANUAL_PREFIX = 'MANUAL-';
 function codesFor(itemId, reveal) {
   return db.prepare('SELECT code, lpa, qr_file FROM esim_codes WHERE order_item_id = ? ORDER BY id').all(itemId).map((c) => {
+    if (c.code.startsWith(MANUAL_PREFIX)) return reveal ? { manual: true, code: '', lpa: '', qr: '' } : { code: 'Entrega manual' };
     if (!reveal) return { code: mask(c.code) };
     let qr = '';
     if (c.qr_file && FILE_RE.test(c.qr_file)) {
@@ -649,7 +652,7 @@ async function sendDeliveryEmail(orderId, force = false) {
     `Total: $${(o.total / 100).toFixed(2)} MXN`, ''];
   for (const it of pub.items) {
     lines.push(`• ${it.qty} x ${it.name}`);
-    for (const c of it.codes) { lines.push(`   Código de activación: ${c.code}`); if (c.lpa) lines.push(`   LPA: ${c.lpa}`); }
+    for (const c of it.codes) { if (c.manual) { lines.push('   Tu código de activación eSIM te llegará por correo en breve.'); continue; } lines.push(`   Código de activación: ${c.code}`); if (c.lpa) lines.push(`   LPA: ${c.lpa}`); }
   }
   if (pub.tracking) lines.push('', `Guía de envío: ${pub.tracking} ${pub.shipCarrier}`);
   lines.push('', `Ver tu pedido (y el código QR si aplica): ${statusLink(o)}`, '',
@@ -1020,6 +1023,16 @@ admin('POST', '/api/admin/inventario', ({ body }) => {
   });
   return { added, duplicates };
 }, { limit: UPLOAD_LIMIT });
+admin('POST', '/api/admin/inventario-manual', ({ body }) => {
+  const qty = int(body.qty, { min: 1, max: 1000, name: 'Cantidad' });
+  const products = body.product_id
+    ? db.prepare("SELECT id FROM products WHERE id = ? AND type = 'esim' AND deleted = 0").all(int(body.product_id, { min: 1, name: 'Producto' }))
+    : db.prepare("SELECT id FROM products WHERE type = 'esim' AND deleted = 0").all();
+  if (!products.length) fail(400, 'No hay productos eSIM');
+  const ins = db.prepare('INSERT INTO esim_codes(product_id, code, created_at) VALUES(?,?,?)');
+  tx(() => { for (const p of products) for (let i = 0; i < qty; i++) ins.run(p.id, MANUAL_PREFIX + p.id + '-' + crypto.randomBytes(6).toString('hex'), nowIso()); });
+  return { added: qty * products.length, products: products.length };
+});
 admin('DELETE', '/api/admin/inventario/:id', ({ params }) => {
   const r = db.prepare("DELETE FROM esim_codes WHERE id = ? AND status = 'disponible'").run(params.id);
   if (!r.changes) fail(400, 'Solo se pueden borrar códigos disponibles');
