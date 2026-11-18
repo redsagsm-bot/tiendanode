@@ -7,5 +7,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!productos.length) ({ productos } = await api('/api/productos'));
     clear(box).append(...productos.slice(0, 8).map(productCard));
     if (!productos.length) box.append(h('p', { class: 'muted', text: 'Pronto agregaremos productos.' }));
-  } catch (e) { clear(box).append(h('p', { class: 'notice err', text: e.message })); }
+  } catch (e) {
+    if (box.dataset.ssr === '1') return;
+    clear(box).append(h('p', { class: 'notice err', text: e.message }));
+  }
 });

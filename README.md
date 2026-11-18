@@ -72,6 +72,16 @@ El *secret* de PayPal y la contraseña SMTP nunca se envían al navegador. En el
 - **Panel `/admin/`:** dashboard con gráfica, productos (con imágenes), inventario eSIM (individual, masivo o CSV `codigo,pin,puk,qr_url`, con códigos enmascarados), pedidos, clientes, mensajes y ajustes (prueba de SMTP y de PayPal, cambio de contraseña).
 - **Seguridad:** contraseñas con scrypt, cookie firmada httpOnly con SameSite=Lax, CSRF, verificación de Origin, límite de intentos de login, CSP y cabeceras de seguridad, límites de tamaño, protección contra path traversal. Las imágenes se validan por su contenido (solo PNG, JPG, WEBP o GIF) y se sirven con CSP *sandbox*.
 
+## SEO
+
+Las páginas públicas salen del servidor con título, descripción, canonical (`PUBLIC_URL` o, si no está definida, `https://www.esimgo.mx`), Open Graph y el nombre de la tienda. `/producto.html?id=N` incluye el producto en el HTML; un id inexistente responde 404. `/index.html` redirige a `/`.
+
+`aviso-privacidad.html` y `terminos.html` son **plantillas**: hay que completar los campos `[COMPLETA: …]` y quitar el aviso amarillo. No contienen datos legales del negocio.
+
+Las imágenes subidas siguen guardándose como PNG, JPG, WEBP o GIF. Si el sistema tiene `cwebp` (la imagen Docker instala el paquete `webp`), además se genera un `.webp` de hasta 1600 px y el navegador lo recibe cuando lo pide. Sin esa herramienta se sirve el archivo original. Conviene volver a subir logotipo y banners muy pesados, o dejar que el arranque genere los `.webp` de lo que ya está en `uploads/`.
+
+Después de publicar: en Google Search Console envía de nuevo `https://www.esimgo.mx/sitemap.xml`.
+
 ## Limitaciones
 
 - Una sola instancia (SQLite). Para escalar hay que cambiar a otra base de datos.

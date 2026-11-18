@@ -12,6 +12,7 @@ const os = require('node:os');
 const { sendMail } = require('./lib/smtp');
 const { createPayPalClient, createMockPayPalClient } = require('./lib/paypal');
 const { createStripeClient, verifyWebhook } = require('./lib/stripe');
+const { imageSizeFile, optimizeFile } = require('./lib/images');
 
 // ---------------------------------------------------------------- Config
 const ROOT = __dirname;
@@ -119,16 +120,24 @@ function bannerList() {
 }
 function storeConfig() {
   const banners = bannerList();
-  return {
-    storeName: setting('store_name', process.env.STORE_NAME || 'Tienda eSIM México'),
-    logo: setting('logo', ''),
+  const logo = setting('logo', '');
+  const ld = fileDims(logo);
+  const cfg = {
+    storeName: setting('store_name', process.env.STORE_NAME || 'eSIMGO.MX'),
+    logo,
     banner: banners[0] || '',
     banners,
+    bannerMeta: banners.map((f) => {
+      const d = fileDims(f);
+      return d ? { width: d.width, height: d.height } : {};
+    }),
     contactEmail: setting('contact_email', process.env.CONTACT_EMAIL || ''),
     whatsapp: setting('whatsapp', process.env.WHATSAPP || ''),
     shippingCost: Number(setting('shipping_cost', String(Math.round(num(process.env.SHIPPING_COST, 99) * 100)))),
     bankInfo: setting('bank_info', DEFAULT_BANK),
   };
+  if (ld) { cfg.logoWidth = ld.width; cfg.logoHeight = ld.height; }
+  return cfg;
 }
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -362,18 +371,37 @@ function saveImage(img, dir) {
   const ext = sniff(buf);
   if (!ext) fail(415, 'Formato no permitido. Solo PNG, JPG, WEBP o GIF.');
   const name = crypto.randomBytes(16).toString('hex') + '.' + ext;
-  fs.writeFileSync(path.join(dir, name), buf, { mode: 0o644 });
+  const full = path.join(dir, name);
+  fs.writeFileSync(full, buf, { mode: 0o644 });
+  if (dir === UPLOAD_DIR && ext !== 'gif') {
+    try { optimizeFile(full); } catch (e) { console.error('[img]', e.message); }
+  }
   return name;
 }
 const IMG_TYPES = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
 const FILE_RE = /^[a-f0-9]{32}\.(png|jpg|webp|gif)$/;
+const dimCache = new Map();
+function fileDims(filename) {
+  if (!filename || !FILE_RE.test(filename)) return null;
+  const full = path.join(UPLOAD_DIR, filename);
+  let st;
+  try { st = fs.statSync(full); } catch { return null; }
+  const hit = dimCache.get(filename);
+  if (hit && hit.mtimeMs === st.mtimeMs) return hit.dims;
+  let dims = null;
+  try { dims = imageSizeFile(full); } catch { dims = null; }
+  dimCache.set(filename, { mtimeMs: st.mtimeMs, dims });
+  return dims;
+}
 
 // ---------------------------------------------------------------- Products
 const availStmt = db.prepare("SELECT COUNT(*) n FROM esim_codes WHERE product_id = ? AND status = 'disponible'");
 function productOut(p, admin = false) {
   const stock = p.type === 'esim' ? availStmt.get(p.id).n : p.stock;
+  const dims = p.image ? fileDims(p.image) : null;
   const o = { id: p.id, name: p.name, carrier: p.carrier, type: p.type, price: p.price, description: p.description,
     dataAmount: p.data_amount, validityDays: p.validity_days, image: p.image ? '/uploads/' + p.image : '', stock, featured: !!p.featured };
+  if (dims) { o.imageWidth = dims.width; o.imageHeight = dims.height; }
   if (admin) { o.active = !!p.active; o.createdAt = p.created_at; }
   return o;
 }
@@ -679,12 +707,13 @@ const CSP = [
   "media-src 'self'" + TD,
   "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
 ].join('; ');
-function secHeaders(res) {
+function secHeaders(res, nonce) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Content-Security-Policy', CSP);
+  const csp = nonce ? CSP.replace("script-src 'self'", `script-src 'self' 'nonce-${nonce}'`) : CSP;
+  res.setHeader('Content-Security-Policy', csp);
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
 }
 function json(res, status, obj, extraHeaders = {}) {
@@ -1188,25 +1217,361 @@ admin('POST', '/api/admin/paypal-test', async () => {
   return { ok: true, mode: c.mode };
 });
 
+// ---------------------------------------------------------------- HTML público (SEO)
+const CARRIER_COLORS = { Telcel: '#0033a0', 'AT&T': '#00a8e0', Bait: '#d39e00', Movistar: '#5bc500', Unefon: '#c9a600', Virgin: '#cc0000', Otro: '#6b7280' };
+const PAGE_SEO = {
+  'index.html': {
+    title: (n) => `eSIM y chips para México | Telcel, AT&T, Bait y más | ${n}`,
+    description: 'Compra eSIM y chips SIM de Telcel, AT&T, Bait, Movistar y Unefon para México. Pago con PayPal, tarjeta o transferencia. Precios en pesos (MXN).',
+    path: '/',
+  },
+  'productos.html': {
+    title: (n) => `Catálogo de eSIM y chips: Telcel, AT&T, Bait, Movistar y Unefon | ${n}`,
+    description: 'Catálogo de eSIM y chips físicos para México: Telcel, AT&T, Bait, Movistar y Unefon. Compara datos, vigencia y precios en MXN.',
+    path: '/productos.html',
+  },
+  'contacto.html': {
+    title: (n) => `Contacto | ${n}`,
+    description: 'Contacto para dudas sobre eSIM, chips SIM, pedidos y envíos en México. Escríbenos por el formulario o por WhatsApp.',
+    path: '/contacto.html',
+  },
+  'carrito.html': {
+    title: (n) => `Carrito | ${n}`,
+    description: 'Revisa tu carrito de eSIM y chips SIM antes de pagar. Precios en pesos mexicanos (MXN).',
+    path: '/carrito.html',
+    noindex: true,
+  },
+  'checkout.html': {
+    title: (n) => `Pago | ${n}`,
+    description: 'Completa tus datos y paga tu eSIM o chip SIM con PayPal, tarjeta o transferencia SPEI.',
+    path: '/checkout.html',
+    noindex: true,
+  },
+  'estado.html': {
+    title: (n) => `Estado de mi pedido | ${n}`,
+    description: 'Consulta el estado de tu pedido, la guía de envío y tus códigos eSIM.',
+    path: '/estado.html',
+    noindex: true,
+  },
+  'gracias.html': {
+    title: (n) => `Gracias por tu compra | ${n}`,
+    description: 'Tu pedido quedó registrado. Consulta el pago y, cuando aplica, tus códigos eSIM.',
+    path: '/gracias.html',
+    noindex: true,
+  },
+  'aviso-privacidad.html': {
+    title: (n) => `Aviso de privacidad | ${n}`,
+    description: 'Plantilla de aviso de privacidad. El titular de la tienda debe completar los datos marcados antes de publicarla como texto vigente.',
+    path: '/aviso-privacidad.html',
+  },
+  'terminos.html': {
+    title: (n) => `Términos y condiciones | ${n}`,
+    description: 'Plantilla de términos y condiciones de compra. El titular de la tienda debe completar los datos marcados antes de publicarla como texto vigente.',
+    path: '/terminos.html',
+  },
+  'producto.html': {
+    title: (n) => `Producto | ${n}`,
+    description: 'Detalle, precio en MXN y descripción del producto.',
+    path: '/producto.html',
+  },
+  '404.html': {
+    title: (n) => `Página no encontrada | ${n}`,
+    description: 'La página que buscas no existe o ya no está disponible.',
+    noindex: true,
+    skipCanonical: true,
+  },
+};
+function siteOrigin() {
+  const pub = String(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  if (/^https?:\/\/[^\s/]+$/i.test(pub)) return pub;
+  return 'https://www.esimgo.mx';
+}
+function absoluteUrl(p) {
+  if (!p) return '';
+  if (/^https?:\/\//i.test(p)) return p;
+  return siteOrigin() + (String(p).startsWith('/') ? p : '/' + p);
+}
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function decodeBasic(s) {
+  return String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+}
+function formatMxn(cents) {
+  const n = Math.max(0, Math.round(Number(cents) || 0));
+  const pesos = Math.floor(n / 100);
+  const cent = String(n % 100).padStart(2, '0');
+  const body = String(pesos).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return '$' + body + '.' + cent + ' MXN';
+}
+function metaDesc(text, fallback) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  const s = clean || fallback;
+  if (s.length <= 160) return s;
+  const cut = s.slice(0, 157);
+  const sp = cut.lastIndexOf(' ');
+  return (sp > 80 ? cut.slice(0, sp) : cut).trim() + '…';
+}
+function dimAttrs(p) {
+  const w = Number(p.imageWidth), h = Number(p.imageHeight);
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1) return '';
+  return ` width="${w}" height="${h}"`;
+}
+function productCardHtml(p) {
+  const color = CARRIER_COLORS[p.carrier] || '#475569';
+  const href = 'producto.html?id=' + p.id;
+  const img = p.image ? `<img src="${escHtml(p.image)}" alt="${escHtml(p.name)}"${dimAttrs(p)} loading="lazy" decoding="async">` : '';
+  const tags = [
+    `<span class="tag ${p.type === 'esim' ? 'esim' : 'sim'}">${p.type === 'esim' ? 'eSIM' : 'SIM física'}</span>`,
+    p.validityDays ? `<span class="tag">${escHtml(String(p.validityDays))} días</span>` : '',
+    /\[EJEMPLO\]/.test(p.name) ? '<span class="tag example">Ejemplo</span>' : '',
+    p.stock < 1 ? '<span class="tag out">Agotado</span>' : '',
+  ].filter(Boolean).join('');
+  const caption = escHtml(p.carrier) + (p.dataAmount ? ' · ' + escHtml(p.dataAmount) : '');
+  return `<article class="card"><a href="${href}"><div class="thumb" style="--c:${color}"><span>${caption}</span>${img}</div></a><div class="body"><div class="meta">${tags}</div><h3><a href="${href}">${escHtml(p.name)}</a></h3><div class="price">${escHtml(formatMxn(p.price))}</div><div class="actions"><a class="btn sm secondary" href="${href}">Ver detalle</a></div></div></article>`;
+}
+function productDetailHtml(p) {
+  const kind = p.type === 'esim' ? 'eSIM (digital)' : 'SIM física (chip)';
+  const bits = [];
+  if (p.dataAmount) bits.push(`<li>Datos: ${escHtml(p.dataAmount)}</li>`);
+  if (p.validityDays) bits.push(`<li>Vigencia: ${escHtml(String(p.validityDays))} días</li>`);
+  bits.push(`<li>${p.type === 'esim' ? 'Entrega: inmediata por código QR al confirmar tu pago' : 'Entrega: envío a domicilio con número de guía'}</li>`);
+  bits.push(`<li>${p.stock > 0 ? 'Disponible' : 'Agotado'}</li>`);
+  const color = CARRIER_COLORS[p.carrier] || '#475569';
+  const img = p.image ? `<img src="${escHtml(p.image)}" alt="${escHtml(p.name)}"${dimAttrs(p)} loading="eager" decoding="async" fetchpriority="high">` : '';
+  const caption = escHtml(p.carrier) + (p.dataAmount ? ' · ' + escHtml(p.dataAmount) : '');
+  return `<div class="product-detail"><div class="thumb" style="--c:${color}"><span>${caption}</span>${img}</div><div><p class="meta"><span class="tag ${p.type === 'esim' ? 'esim' : 'sim'}">${kind}</span> <span class="tag">${escHtml(p.carrier)}</span></p><h1>${escHtml(p.name)}</h1><p class="price">${escHtml(formatMxn(p.price))}</p><p class="muted">Precio con IVA incluido.</p><ul>${bits.join('')}</ul><p class="product-desc">${escHtml(p.description || '')}</p></div></div>`;
+}
+function featuredProducts() {
+  let list = listProducts({ featured: '1' });
+  if (!list.length) list = listProducts({});
+  return list.slice(0, 8);
+}
+let faqCache = null;
+function homeFaq() {
+  if (faqCache) return faqCache;
+  let html = '';
+  try { html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'); } catch { html = ''; }
+  const out = [];
+  const re = /<details>\s*<summary>([\s\S]*?)<\/summary>\s*<p>([\s\S]*?)<\/p>\s*<\/details>/g;
+  let m;
+  while ((m = re.exec(html))) out.push({ q: decodeBasic(m[1].trim()), a: decodeBasic(m[2].trim()) });
+  faqCache = out;
+  return out;
+}
+function homeJsonLd(cfg) {
+  const org = {
+    '@type': ['Store', 'Organization'],
+    name: cfg.storeName,
+    url: absoluteUrl('/'),
+    currenciesAccepted: 'MXN',
+    areaServed: { '@type': 'Country', name: 'México' },
+    logo: absoluteUrl(cfg.logo && FILE_RE.test(cfg.logo) ? '/uploads/' + cfg.logo : '/img/favicon.svg'),
+    sameAs: ['https://www.facebook.com/profile.php?id=61596325626434'],
+  };
+  const pay = [];
+  if (paypalConfig().enabled) pay.push('PayPal');
+  if (stripeEnabled()) pay.push('Tarjeta');
+  pay.push('Transferencia SPEI');
+  org.paymentAccepted = pay.join(', ');
+  if (cfg.contactEmail) org.email = cfg.contactEmail;
+  if (cfg.whatsapp) org.telephone = '+' + String(cfg.whatsapp).replace(/\D/g, '');
+  const graph = [org];
+  const faqs = homeFaq();
+  if (faqs.length) {
+    graph.push({
+      '@type': 'FAQPage',
+      mainEntity: faqs.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+    });
+  }
+  return { '@context': 'https://schema.org', '@graph': graph };
+}
+function productJsonLd(p, storeName, url) {
+  const data = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: p.name,
+    description: String(p.description || `${p.name}. ${p.carrier}.`).slice(0, 5000),
+    sku: String(p.id),
+    brand: { '@type': 'Brand', name: p.carrier },
+    category: p.type === 'esim' ? 'eSIM' : 'SIM',
+    offers: {
+      '@type': 'Offer',
+      url,
+      priceCurrency: 'MXN',
+      price: (Number(p.price) / 100).toFixed(2),
+      availability: p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+      itemCondition: 'https://schema.org/NewCondition',
+      seller: { '@type': 'Organization', name: storeName },
+    },
+  };
+  if (p.image) data.image = [absoluteUrl(p.image)];
+  return data;
+}
+function fillSlot(html, slot, inner) {
+  const re = new RegExp(`<!--ssr:${slot}-->[\\s\\S]*?<!--/ssr:${slot}-->`);
+  if (!re.test(html)) return html;
+  return html.replace(re, () => `<!--ssr:${slot}-->${inner}<!--/ssr:${slot}-->`);
+}
+function markSsr(html, id) {
+  return html.replace(`id="${id}"`, `id="${id}" data-ssr="1"`);
+}
+function setTitle(html, title) {
+  const tag = `<title>${escHtml(title)}</title>`;
+  if (/<title>[\s\S]*?<\/title>/.test(html)) return html.replace(/<title>[\s\S]*?<\/title>/, () => tag);
+  return html.replace('</head>', tag + '\n</head>');
+}
+function setMeta(html, name, content) {
+  const tag = `<meta name="${name}" content="${escHtml(content)}">`;
+  const re = new RegExp(`<meta\\s+name="${name}"\\s+content="[^"]*"\\s*>`, 'i');
+  if (re.test(html)) return html.replace(re, () => tag);
+  return html.replace('</head>', tag + '\n</head>');
+}
+function shareImage(cfg) {
+  if (cfg.logo && FILE_RE.test(cfg.logo)) return absoluteUrl('/uploads/' + cfg.logo);
+  return absoluteUrl('/img/favicon.svg');
+}
+function buildHead({ title, description, canonical, image, name, jsonLd, nonce, ogType }) {
+  const lines = ['<link rel="icon" href="/favicon.ico" sizes="any">'];
+  if (canonical) lines.push(`<link rel="canonical" href="${escHtml(canonical)}">`);
+  lines.push(`<meta property="og:type" content="${ogType || 'website'}">`);
+  lines.push('<meta property="og:locale" content="es_MX">');
+  lines.push(`<meta property="og:site_name" content="${escHtml(name)}">`);
+  lines.push(`<meta property="og:title" content="${escHtml(title)}">`);
+  if (description) lines.push(`<meta property="og:description" content="${escHtml(description)}">`);
+  if (canonical) lines.push(`<meta property="og:url" content="${escHtml(canonical)}">`);
+  if (image) lines.push(`<meta property="og:image" content="${escHtml(image)}">`);
+  lines.push('<meta name="twitter:card" content="summary_large_image">');
+  lines.push(`<meta name="twitter:title" content="${escHtml(title)}">`);
+  if (description) lines.push(`<meta name="twitter:description" content="${escHtml(description)}">`);
+  if (image) lines.push(`<meta name="twitter:image" content="${escHtml(image)}">`);
+  if (jsonLd) {
+    const json = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
+    const n = nonce ? ` nonce="${escHtml(nonce)}"` : '';
+    lines.push(`<script type="application/ld+json"${n}>${json}</script>`);
+  }
+  return lines.join('\n');
+}
+function renderPublicHtml(file, opts = {}) {
+  let html = fs.readFileSync(path.join(PUBLIC_DIR, file), 'utf8');
+  const cfg = storeConfig();
+  const name = cfg.storeName || 'eSIMGO.MX';
+  html = html.replaceAll('{tienda}', () => escHtml(name));
+  const seo = PAGE_SEO[file] || {};
+  let title = seo.title ? seo.title(name) : '';
+  let description = seo.description || '';
+  let canonicalPath = seo.path || '/' + file;
+  let image = shareImage(cfg);
+  let jsonLd = null;
+  let ogType = 'website';
+  if (file === 'index.html') {
+    const list = featuredProducts();
+    html = fillSlot(html, 'featured', list.length ? list.map(productCardHtml).join('') : '<p class="muted">Pronto agregaremos productos.</p>');
+    html = markSsr(html, 'featured');
+    jsonLd = homeJsonLd(cfg);
+  }
+  if (file === 'productos.html') {
+    const list = listProducts({});
+    const count = list.length === 1 ? '1 producto' : list.length + ' productos';
+    html = fillSlot(html, 'count', escHtml(count));
+    html = fillSlot(html, 'list', list.length ? list.map(productCardHtml).join('') : '<p class="muted">Pronto agregaremos productos.</p>');
+    html = markSsr(html, 'list');
+  }
+  if (opts.product) {
+    const p = opts.product;
+    title = `${p.name} | ${name}`;
+    description = metaDesc(p.description, `${p.name} de ${p.carrier}. Precio ${formatMxn(p.price)}.`);
+    canonicalPath = '/producto.html?id=' + p.id;
+    html = fillSlot(html, 'detail', productDetailHtml(p));
+    html = markSsr(html, 'detail');
+    if (p.image) image = absoluteUrl(p.image);
+    jsonLd = productJsonLd(p, name, absoluteUrl(canonicalPath));
+    ogType = 'product';
+  }
+  if (opts.message) html = fillSlot(html, 'message', escHtml(opts.message));
+  if (!title) {
+    const m = /<title>([^<]*)<\/title>/.exec(html);
+    title = m ? decodeBasic(m[1]) : name;
+  }
+  if (!description) {
+    const m = /<meta name="description" content="([^"]*)">/.exec(html);
+    description = m ? decodeBasic(m[1]) : '';
+  }
+  html = setTitle(html, title);
+  if (description) html = setMeta(html, 'description', description);
+  if (opts.noindex || seo.noindex) html = setMeta(html, 'robots', 'noindex');
+  const skipCanonical = opts.skipCanonical || seo.skipCanonical;
+  const canonical = skipCanonical ? '' : absoluteUrl(canonicalPath);
+  const head = buildHead({ title, description, canonical, image, name, jsonLd, nonce: opts.nonce, ogType });
+  return html.replace('</head>', () => head + '\n</head>');
+}
+function xmlEsc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+}
+function ymd(d) {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return new Date().toISOString().slice(0, 10);
+  return dt.toISOString().slice(0, 10);
+}
+function fileLastmod(rel) {
+  try { return ymd(fs.statSync(path.join(PUBLIC_DIR, rel)).mtime); } catch { return ymd(new Date()); }
+}
+function sitemapXml(base) {
+  const pages = [
+    ['/', 'index.html'],
+    ['/productos.html', 'productos.html'],
+    ['/contacto.html', 'contacto.html'],
+    ['/aviso-privacidad.html', 'aviso-privacidad.html'],
+    ['/terminos.html', 'terminos.html'],
+  ];
+  const urls = pages.map(([loc, file]) => ({ loc: base + loc, lastmod: fileLastmod(file) }));
+  for (const row of db.prepare('SELECT id, created_at FROM products WHERE active = 1 AND deleted = 0 ORDER BY id').all()) {
+    urls.push({ loc: base + '/producto.html?id=' + row.id, lastmod: ymd(row.created_at) });
+  }
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    urls.map((u) => `<url><loc>${xmlEsc(u.loc)}</loc><lastmod>${u.lastmod}</lastmod></url>`).join('\n') + '\n</urlset>\n';
+}
+function warmImageCache() {
+  let names = [];
+  try { names = fs.readdirSync(UPLOAD_DIR); } catch { return; }
+  for (const name of names) {
+    if (!FILE_RE.test(name) || name.endsWith('.gif')) continue;
+    try { optimizeFile(path.join(UPLOAD_DIR, name)); } catch (e) { console.error('[img]', name, e.message); }
+  }
+}
+
 // ---------------------------------------------------------------- Static
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.ico': 'image/x-icon',
   '.txt': 'text/plain; charset=utf-8', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
-function notFound(res) {
-  res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end('<!doctype html><html lang="es-MX"><meta charset="utf-8"><title>No encontrado</title><p style="font-family:sans-serif;padding:2rem">Página no encontrada. <a href="/">Ir al inicio</a></p></html>');
+function sendHtml(req, res, status, html) {
+  const body = Buffer.from(html, 'utf8');
+  const headers = { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': status === 200 ? 'no-cache' : 'no-store' };
+  if (status === 404) headers['X-Robots-Tag'] = 'noindex';
+  res.writeHead(status, headers);
+  res.end(req.method === 'HEAD' ? undefined : body);
+}
+function notFound(req, res, message) {
+  let html;
+  try {
+    html = renderPublicHtml('404.html', { nonce: req && req.seoNonce, message, noindex: true, skipCanonical: true });
+  } catch (e) {
+    console.error('[404]', e.message);
+    html = '<!doctype html><html lang="es-MX"><meta charset="utf-8"><title>Página no encontrada</title><p>Página no encontrada. <a href="/">Ir al inicio</a></p></html>';
+  }
+  sendHtml(req, res, 404, html);
 }
 function serveFile(req, res, root, urlPath) {
   let p;
-  try { p = decodeURIComponent(urlPath); } catch { return notFound(res); }
-  if (p.includes('\0') || p.includes('\\')) return notFound(res);
+  try { p = decodeURIComponent(urlPath); } catch { return notFound(req, res); }
+  if (p.includes('\0') || p.includes('\\')) return notFound(req, res);
   if (p.endsWith('/')) p += 'index.html';
   const rel = path.posix.normalize('/' + p);
-  if (rel.split('/').some((seg) => seg.startsWith('.'))) return notFound(res);
+  if (rel.split('/').some((seg) => seg.startsWith('.'))) return notFound(req, res);
   const full = path.resolve(root, '.' + rel);
-  if (!full.startsWith(root + path.sep)) return notFound(res);
+  if (!full.startsWith(root + path.sep)) return notFound(req, res);
   fs.stat(full, (err, st) => {
-    if (err) return notFound(res);
+    if (err) return notFound(req, res);
     if (st.isDirectory()) { res.writeHead(301, { Location: '/' }); return res.end(); }
     const ext = path.extname(full).toLowerCase();
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Content-Length': st.size,
@@ -1215,11 +1580,18 @@ function serveFile(req, res, root, urlPath) {
     fs.createReadStream(full).pipe(res);
   });
 }
+function acceptsWebp(req) {
+  return /image\/webp/i.test(String(req.headers.accept || ''));
+}
 function serveUpload(req, res, name) {
-  if (!FILE_RE.test(name)) return notFound(res);
-  fs.readFile(path.join(UPLOAD_DIR, name), (err, buf) => {
-    if (err) return notFound(res);
-    res.writeHead(200, { 'Content-Type': IMG_TYPES[name.split('.').pop()], 'Content-Length': buf.length, 'Cache-Control': 'public, max-age=86400',
+  if (!FILE_RE.test(name)) return notFound(req, res);
+  const orig = path.join(UPLOAD_DIR, name);
+  const side = orig + '.webp';
+  const useWebp = acceptsWebp(req) && fs.existsSync(side);
+  fs.readFile(useWebp ? side : orig, (err, buf) => {
+    if (err) return notFound(req, res);
+    res.writeHead(200, { 'Content-Type': useWebp ? 'image/webp' : IMG_TYPES[name.split('.').pop()], 'Content-Length': buf.length,
+      'Cache-Control': 'public, max-age=86400', 'Vary': 'Accept',
       'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox", 'Content-Disposition': 'inline' });
     res.end(req.method === 'HEAD' ? undefined : buf);
   });
@@ -1227,7 +1599,9 @@ function serveUpload(req, res, name) {
 
 // ---------------------------------------------------------------- Main handler
 async function handle(req, res) {
-  secHeaders(res);
+  const nonce = crypto.randomBytes(16).toString('base64url');
+  req.seoNonce = nonce;
+  secHeaders(res, nonce);
   let url;
   try { url = new URL(req.url, 'http://localhost'); } catch { return json(res, 400, { error: 'URL inválida' }); }
   const p = url.pathname;
@@ -1247,17 +1621,34 @@ async function handle(req, res) {
       body = 'User-agent: *\nDisallow: /admin/\nDisallow: /api/\nDisallow: /carrito.html\nDisallow: /checkout.html\nDisallow: /gracias.html\nDisallow: /estado.html\n' + (base ? `\nSitemap: ${base}/sitemap.xml\n` : '');
     } else {
       type = 'application/xml; charset=utf-8';
-      const urls = ['/', '/productos.html', '/contacto.html'];
-      for (const pr of listProducts({})) urls.push('/producto.html?id=' + pr.id);
-      body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
-        urls.map((u) => `<url><loc>${base}${u}</loc></url>`).join('\n') + '\n</urlset>\n';
+      body = sitemapXml(base);
     }
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600' });
     return res.end(req.method === 'HEAD' ? undefined : body);
   }
   if (p === '/admin') { res.writeHead(301, { Location: '/admin/' }); return res.end(); }
   if (p.startsWith('/admin/')) return serveFile(req, res, ADMIN_DIR, p.slice(6));
+  if (p === '/index.html') {
+    res.writeHead(301, { Location: '/' + url.search, 'Cache-Control': 'public, max-age=86400' });
+    return res.end();
+  }
   try { notifyVisit(req, p); } catch (e) { console.error('[visita]', e.message); }
+  if (p === '/producto.html') {
+    const idRaw = url.searchParams.get('id');
+    const id = /^\d{1,15}$/.test(idRaw || '') ? Number(idRaw) : 0;
+    if (!Number.isSafeInteger(id) || id < 1) return notFound(req, res, 'No encontramos ese producto. Revisa el enlace o vuelve al catálogo.');
+    const row = db.prepare('SELECT * FROM products WHERE id = ? AND active = 1 AND deleted = 0').get(id);
+    if (!row) return notFound(req, res, 'Este producto no existe o ya no está disponible.');
+    try { return sendHtml(req, res, 200, renderPublicHtml('producto.html', { nonce, product: productOut(row) })); }
+    catch (e) { console.error('[html]', e); return notFound(req, res); }
+  }
+  if (p === '/' || /^\/[A-Za-z0-9._-]+\.html$/.test(p)) {
+    const file = p === '/' ? 'index.html' : p.slice(1);
+    if (!fs.existsSync(path.join(PUBLIC_DIR, file))) return notFound(req, res);
+    const status = file === '404.html' ? 404 : 200;
+    try { return sendHtml(req, res, status, renderPublicHtml(file, { nonce })); }
+    catch (e) { console.error('[html]', e); return notFound(req, res); }
+  }
   return serveFile(req, res, PUBLIC_DIR, p);
 }
 async function handleApi(req, res, url) {
@@ -1313,6 +1704,7 @@ server.headersTimeout = 20000;
 
 bootstrapAdmin();
 seed();
+setImmediate(() => { try { warmImageCache(); } catch (e) { console.error('[img]', e.message); } });
 const timer = setInterval(() => {
   try { expireOrders(); } catch (e) { console.error('[expirar]', e.message); }
   const now = Date.now();
