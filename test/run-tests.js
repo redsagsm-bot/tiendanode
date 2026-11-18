@@ -69,6 +69,26 @@ function client(base) {
   };
 }
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+function solidPng(w, h) {
+  const zlib = require('node:zlib');
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * (w * 3 + 1);
+    for (let x = 0; x < w; x++) {
+      const i = row + 1 + x * 3;
+      raw[i] = (x * 13) & 255; raw[i + 1] = (y * 7) & 255; raw[i + 2] = 40;
+    }
+  }
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body) >>> 0);
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
 const CUSTOMER = { name: 'Cliente Prueba', email: 'cliente@ejemplo.com', phone: '5512345678' };
 const ADDRESS = { street: 'Av. Reforma 123', colonia: 'Juárez', cp: '06600', city: 'Ciudad de México', state: 'Ciudad de México', refs: '' };
 
@@ -108,13 +128,31 @@ async function main() {
   ok(r.status === 404 && r.json.error, 'API inexistente → 404 JSON');
 
   section('Páginas públicas y referencias (JS/CSS/fetch)');
-  const pages = ['index.html', 'productos.html', 'producto.html?id=1', 'carrito.html', 'checkout.html', 'contacto.html', 'estado.html', 'gracias.html'];
+  function htmlSinInlinePeligroso(html) {
+    const sinLd = html.replace(/<script\s+type="application\/ld\+json"[\s\S]*?<\/script>/gi, '');
+    return !/<script(?![^>]*\bsrc=)[^>]*>/i.test(sinLd) && !/\son[a-z]+=/i.test(sinLd);
+  }
+  r = await pub.get('/index.html');
+  ok(r.status === 301 && r.headers.get('location') === '/', '/index.html redirige 301 a /');
+  const pages = [
+    ['/', '/'],
+    ['/productos.html', 'productos.html'],
+    ['/producto.html?id=1', 'producto.html?id=1'],
+    ['/carrito.html', 'carrito.html'],
+    ['/checkout.html', 'checkout.html'],
+    ['/contacto.html', 'contacto.html'],
+    ['/estado.html', 'estado.html'],
+    ['/gracias.html', 'gracias.html'],
+    ['/aviso-privacidad.html', 'aviso-privacidad.html'],
+    ['/terminos.html', 'terminos.html'],
+  ];
   const assets = new Set();
-  for (const p of pages) {
-    r = await pub.get('/' + p);
-    ok(r.status === 200 && /lang="es-MX"/.test(r.text), 'Página ' + p + ' (es-MX)');
-    ok(!/<script(?![^>]*\bsrc=)[^>]*>/i.test(r.text) && !/\son[a-z]+=/i.test(r.text), 'Sin scripts ni handlers inline en ' + p);
-    for (const m of r.text.matchAll(/(?:src|href)="([^"#?]+\.(?:js|css|svg))"/g)) assets.add(new URL(m[1], A.base + '/' + p).pathname);
+  for (const [path, label] of pages) {
+    r = await pub.get(path);
+    ok(r.status === 200 && /lang="es-MX"/.test(r.text), 'Página ' + label + ' (es-MX)');
+    ok(htmlSinInlinePeligroso(r.text), 'Sin scripts ni handlers inline en ' + label);
+    ok(!r.text.includes('{tienda}'), 'Sin placeholder {tienda} en ' + label);
+    for (const m of r.text.matchAll(/(?:src|href)="([^"#?]+\.(?:js|css|svg))"/g)) assets.add(new URL(m[1], A.base + path).pathname);
   }
   r = await pub.get('/admin/');
   ok(r.status === 200 && /admin\.js/.test(r.text), 'Página /admin/');
@@ -137,6 +175,45 @@ async function main() {
     const exists = g.status !== 404 || pz.status !== 404 || (await fetch(A.base + probe + '/1')).status !== 404;
     ok(exists, 'URL de fetch del frontend existe en el servidor: ' + u, [g.status, pz.status]);
   }
+
+  section('SEO: títulos, canonical, JSON-LD, sitemap y 404');
+  r = await pub.get('/');
+  ok(/<title>eSIM y chips para México \| Telcel, AT&amp;T, Bait y más \| eSIMGO\.MX<\/title>/.test(r.text), 'Inicio: título único', (r.text.match(/<title>[^<]*<\/title>/) || [])[0]);
+  ok(/<h1>eSIM y chips para todas las compañías de México<\/h1>/.test(r.text), 'Inicio: H1 en el HTML');
+  ok(/rel="canonical" href="https:\/\/www\.esimgo\.mx\/"/.test(r.text), 'Inicio: canonical');
+  ok(/property="og:locale" content="es_MX"/.test(r.text) && /property="og:title"/.test(r.text) && /property="og:image"/.test(r.text) && /name="twitter:card"/.test(r.text), 'Inicio: Open Graph y Twitter');
+  ok(/"@type":"FAQPage"/.test(r.text) && (r.text.match(/"@type":"Question"/g) || []).length === 5 && /"@type":\["Store","Organization"\]/.test(r.text), 'Inicio: JSON-LD Store y 5 preguntas');
+  ok(/producto\.html\?id=1/.test(r.text) && /aviso-privacidad\.html/.test(r.text) && /terminos\.html/.test(r.text), 'Inicio: productos y páginas legales en el HTML');
+  r = await pub.get('/productos.html');
+  ok(/<title>Catálogo de eSIM y chips: Telcel, AT&amp;T, Bait, Movistar y Unefon \| eSIMGO\.MX<\/title>/.test(r.text), 'Productos: título', (r.text.match(/<title>[^<]*<\/title>/) || [])[0]);
+  ok(/rel="canonical" href="https:\/\/www\.esimgo\.mx\/productos\.html"/.test(r.text), 'Productos: canonical');
+  ok((r.text.match(/producto\.html\?id=/g) || []).length >= 8, 'Catálogo renderizado en el HTML');
+  r = await pub.get('/contacto.html');
+  ok(/<title>Contacto \| eSIMGO\.MX<\/title>/.test(r.text) && /<h1>Contacto<\/h1>/.test(r.text) && /rel="canonical" href="https:\/\/www\.esimgo\.mx\/contacto\.html"/.test(r.text), 'Contacto: título, H1 y canonical');
+  r = await pub.get('/producto.html?id=1');
+  ok(/<h1>\[EJEMPLO\] eSIM Telcel 5 GB/.test(r.text), 'Producto: H1 en el HTML', (r.text.match(/<h1>[^<]*<\/h1>/) || [])[0]);
+  ok(/\$299\.00 MXN/.test(r.text), 'Producto: precio MXN en el HTML');
+  ok(/Producto de EJEMPLO/.test(r.text), 'Producto: descripción en el HTML');
+  ok(/<title>\[EJEMPLO\] eSIM Telcel 5 GB · 30 días \| eSIMGO\.MX<\/title>/.test(r.text), 'Producto: título con el nombre', (r.text.match(/<title>[^<]*<\/title>/) || [])[0]);
+  ok(/rel="canonical" href="https:\/\/www\.esimgo\.mx\/producto\.html\?id=1"/.test(r.text), 'Producto: canonical');
+  ok(/"@type":"Product"/.test(r.text) && /"priceCurrency":"MXN"/.test(r.text) && /"price":"299\.00"/.test(r.text) && /schema\.org\/InStock/.test(r.text), 'Producto: JSON-LD Offer');
+  ok(!/<div class="spinner"/.test(r.text), 'Producto: el HTML no se queda en el spinner');
+  r = await pub.get('/producto.html');
+  ok(r.status === 404 && /<h1>Página no encontrada<\/h1>/.test(r.text) && /class="site-header"/.test(r.text), 'Producto sin id → 404 con layout');
+  r = await pub.get('/producto.html?id=999');
+  ok(r.status === 404 && /no existe o ya no está disponible/.test(r.text), 'Producto inexistente → 404');
+  r = await pub.get('/producto.html?id=0');
+  ok(r.status === 404, 'Producto id=0 → 404');
+  r = await pub.get('/no-hay-esta-ruta');
+  ok(r.status === 404 && /site-header/.test(r.text) && /<h1>Página no encontrada<\/h1>/.test(r.text), '404 genérico usa el layout');
+  r = await pub.get('/favicon.ico');
+  ok(r.status === 200 && /icon/.test(r.headers.get('content-type') || '') && r.text.length > 100, 'favicon.ico responde');
+  r = await pub.get('/sitemap.xml');
+  ok(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/.test(r.text) && /aviso-privacidad\.html/.test(r.text) && /terminos\.html/.test(r.text) && /producto\.html\?id=1/.test(r.text), 'sitemap con lastmod, legales y productos');
+  r = await pub.get('/aviso-privacidad.html');
+  ok(/Plantilla sin valor legal/.test(r.text) && /\[COMPLETA:/.test(r.text), 'Aviso de privacidad es plantilla');
+  r = await pub.get('/terminos.html');
+  ok(/Plantilla sin valor legal/.test(r.text) && /\[COMPLETA:/.test(r.text), 'Términos son plantilla');
 
   section('Catálogo y filtros');
   r = await pub.get('/api/productos');
@@ -183,14 +260,25 @@ async function main() {
   const imgUrl = r.json.url;
   r = await pub.get(imgUrl);
   ok(r.status === 200 && r.headers.get('content-type') === 'image/png' && /sandbox/.test(r.headers.get('content-security-policy')) && r.headers.get('x-content-type-options') === 'nosniff', 'Imagen servida con tipo fijo, CSP sandbox y nosniff');
+  let hasCwebp = false;
+  try { execFileSync('cwebp', ['-version'], { stdio: 'ignore' }); hasCwebp = true; } catch { /* opcional */ }
+  if (hasCwebp) {
+    const up = await adm.post('/api/admin/upload', { filename: 'opt.png', data: solidPng(96, 64).toString('base64') });
+    ok(up.status === 200 && /\.png$/.test(up.json.url), 'Subida PNG que se puede optimizar', up.json);
+    const wr = await pub.get(up.json.url, { headers: { Accept: 'image/webp,image/png;q=0.8' } });
+    ok(wr.status === 200 && wr.headers.get('content-type') === 'image/webp' && /Accept/.test(wr.headers.get('vary') || ''), 'Si el navegador acepta WebP, se sirve la versión optimizada', wr.headers.get('content-type'));
+    const plain = await pub.get(up.json.url);
+    ok(plain.headers.get('content-type') === 'image/png', 'Sin Accept webp se conserva el PNG original');
+  } else skip('Versión WebP al subir', 'cwebp no está instalado; en Docker sí (paquete webp)');
   r = await adm.post('/api/admin/upload', { filename: 'x.png', data: Buffer.from('<html><script>alert(1)</script></html>').toString('base64') });
   ok(r.status === 415, 'Subida HTML disfrazado de PNG → rechazada');
   r = await adm.post('/api/admin/upload', { filename: 'x.svg', data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>').toString('base64') });
   ok(r.status === 415, 'Subida SVG → rechazada');
-  r = await adm.post('/api/admin/upload', { filename: 'big.png', data: Buffer.concat([PNG, Buffer.alloc(2.2 * 1024 * 1024)]).toString('base64') });
-  ok(r.status === 400 || r.status === 413, 'Imagen > 2 MB → rechazada', r.status);
+  r = await adm.post('/api/admin/upload', { filename: 'big.png', data: Buffer.concat([PNG, Buffer.alloc(8 * 1024 * 1024)]).toString('base64') });
+  ok(r.status === 413, 'Imagen mayor a 8 MB → rechazada', r.status);
   r = await adm.post('/api/admin/productos', { name: 'eSIM Prueba <b>1</b>', carrier: 'Telcel', type: 'esim', price: '150.50', description: 'desc', dataAmount: '3 GB', validityDays: 15, image: imgUrl.replace('/uploads/', ''), active: true, featured: false });
   ok(r.status === 200 && r.json.producto.price === 15050 && r.json.producto.image === imgUrl, 'Crear producto (precio en pesos → centavos, con imagen)', r.json);
+  ok(r.json.producto.imageWidth === 1 && r.json.producto.imageHeight === 1, 'La API informa ancho y alto de la imagen');
   const newId = r.json.producto.id;
   r = await adm.post('/api/admin/productos', { name: 'Malo', carrier: 'Telcel', type: 'esim', price: '-5' });
   ok(r.status === 400, 'Precio negativo → 400');
@@ -205,6 +293,8 @@ async function main() {
   r = await adm.put('/api/admin/productos/' + newId, { active: false });
   r = await pub.get('/api/productos/' + newId);
   ok(r.status === 404, 'Producto oculto no es visible al público');
+  r = await pub.get('/producto.html?id=' + newId);
+  ok(r.status === 404, 'HTML de producto oculto → 404');
   r = await adm.post('/api/admin/productos', { name: 'Para borrar', carrier: 'Otro', type: 'sim', price: '10', stock: 1 });
   r = await adm.del('/api/admin/productos/' + r.json.producto.id);
   ok(r.status === 200 && r.json.archived === false, 'Borrar producto sin historial');
@@ -500,7 +590,7 @@ async function browserTests(A) {
     ok(await waitFor('document.querySelectorAll("#list .card").length > 0 && [...document.querySelectorAll("#list .tag.sim")].length === document.querySelectorAll("#list .card").length'), 'Navegador: filtro de productos desde la URL');
     const pid = await evalJs('fetch("/api/productos?carrier=AT%26T").then(r=>r.json()).then(j=>j.productos[0].id)');
     await nav('/producto.html?id=' + pid);
-    ok(await waitFor('!!document.querySelector("#detail h1")'), 'Navegador: detalle de producto');
+    ok(await waitFor('[...document.querySelectorAll("#detail button")].some(b => b.textContent === "Agregar al carrito")'), 'Navegador: detalle de producto');
     await evalJs('localStorage.clear(); [...document.querySelectorAll("#detail button")].find(b=>b.textContent==="Agregar al carrito").click(); true');
     ok(await evalJs('JSON.parse(localStorage.getItem("carrito_v1"))[0].qty === 1'), 'Navegador: agregar al carrito (localStorage)');
     await nav('/carrito.html');

@@ -17,7 +17,10 @@ document.addEventListener('DOMContentLoaded', () => {
       count.textContent = productos.length === 1 ? '1 producto' : productos.length + ' productos';
       if (!productos.length) list.append(h('p', { class: 'muted', text: 'No encontramos productos con esos filtros.' }));
       else list.append(...productos.map(productCard));
-    } catch (e) { clear(list).append(h('p', { class: 'notice err', text: e.message })); }
+    } catch (e) {
+      if (list.dataset.ssr === '1') return;
+      clear(list).append(h('p', { class: 'notice err', text: e.message }));
+    }
   }
   form.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
   form.addEventListener('change', load);

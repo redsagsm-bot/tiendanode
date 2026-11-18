@@ -1,4 +1,8 @@
 FROM node:22-slim
+# cwebp: al subir imágenes se guarda el original y un WebP más chico (máx. 1600 px).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends webp \
+ && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json ./

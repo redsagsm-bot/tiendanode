@@ -341,17 +341,17 @@
       ppMode: h('select', {}, h('option', { value: 'sandbox', text: 'Sandbox (pruebas)' }), h('option', { value: 'live', text: 'Live (producción)' })), ppClient: h('input', { value: s.paypal.clientId, maxlength: 200, autocomplete: 'off' }),
       ppSecret: h('input', { type: 'password', maxlength: 200, autocomplete: 'new-password', placeholder: s.paypal.secretSet ? 'Guardado: ' + s.paypal.secretMasked + ' (deja vacío para conservar)' : 'Secret de PayPal' }) };
     let logo = s.logo || '';
-    const logoPrev = h('div', {}, logo ? h('img', { src: '/uploads/' + logo, alt: '', style: { maxHeight: '60px' } }) : null);
+    const logoPrev = h('div', {}, logo ? h('img', { src: '/uploads/' + logo, alt: 'Logotipo de la tienda', style: { maxHeight: '60px' } }) : null);
     const logoFile = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif' });
     logoFile.addEventListener('change', async () => {
       if (!logoFile.files[0]) return;
-      try { const r = await api('/api/admin/upload', 'POST', await fileToB64(logoFile.files[0])); logo = r.url.replace('/uploads/', ''); clear(logoPrev).append(h('img', { src: r.url, alt: '', style: { maxHeight: '60px' } })); show(m, 'Logotipo subido: pulsa "Guardar ajustes"', 'ok'); }
+      try { const r = await api('/api/admin/upload', 'POST', await fileToB64(logoFile.files[0])); logo = r.url.replace('/uploads/', ''); clear(logoPrev).append(h('img', { src: r.url, alt: 'Logotipo de la tienda', style: { maxHeight: '60px' } })); show(m, 'Logotipo subido: pulsa "Guardar ajustes"', 'ok'); }
       catch (e) { show(m, e.message); logoFile.value = ''; }
     });
     let banners = (s.banners || (s.banner ? [s.banner] : [])).slice();
     const banList = h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '.6rem', margin: '.4rem 0' } });
     const drawBanners = () => { clear(banList); banners.forEach((b, i) => banList.append(h('div', { style: { textAlign: 'center' } },
-      h('img', { src: '/uploads/' + b, alt: '', style: { height: '70px', borderRadius: '8px', display: 'block' } }),
+      h('img', { src: '/uploads/' + b, alt: 'Banner ' + (i + 1), style: { height: '70px', borderRadius: '8px', display: 'block' } }),
       h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { banners.splice(i, 1); drawBanners(); show(m, 'Imagen quitada: pulsa "Guardar ajustes"', 'info'); }, text: 'Quitar' })))); };
     drawBanners();
     const banFile = h('input', { type: 'file', multiple: true, accept: 'image/png,image/jpeg,image/webp,image/gif' });

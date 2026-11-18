@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Producto · {tienda}</title>
-<meta name="description" content="Detalle del producto.">
+<title>Producto | {tienda}</title>
+<meta name="description" content="Detalle, precio en MXN y descripción del producto.">
 <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/styles.css">
 <script src="js/common.js" defer></script>
@@ -14,10 +14,10 @@
 <a class="skip" href="#main">Saltar al contenido</a>
 <header class="site-header">
   <nav class="container nav" aria-label="Principal">
-    <a class="brand" href="index.html"><span class="logo" aria-hidden="true">📶</span><span data-store-name>Tienda eSIM México</span></a>
+    <a class="brand" href="/"><span class="logo" aria-hidden="true">📶</span><span data-store-name>{tienda}</span></a>
     <button class="nav-toggle" type="button" aria-controls="menu" aria-expanded="false" aria-label="Abrir menú">☰</button>
     <div class="menu" id="menu">
-      <a href="index.html">Inicio</a>
+      <a href="/">Inicio</a>
       <a href="productos.html">Productos</a>
       <a href="estado.html">Mi pedido</a>
       <a href="contacto.html">Contacto</a>
@@ -29,17 +29,17 @@
 <section>
   <div class="container">
     <p><a href="productos.html">← Volver a productos</a></p>
-    <div id="detail" aria-live="polite"><div class="spinner" aria-label="Cargando"></div></div>
+    <div id="detail" aria-live="polite"><!--ssr:detail--><div class="spinner" aria-label="Cargando"></div><!--/ssr:detail--></div>
   </div>
 </section>
 </main>
 <footer class="site-footer">
   <div class="container cols">
-    <div><strong data-store-name>Tienda eSIM México</strong><p>eSIM y chips para Telcel, AT&amp;T, Bait, Movistar, Unefon y más. Precios en pesos mexicanos (MXN) con IVA incluido.</p></div>
-    <div><strong>Ayuda</strong><p><a href="estado.html">Consultar mi pedido</a><br><a href="contacto.html">Contacto</a><br><a href="index.html#faq">Preguntas frecuentes</a></p></div>
+    <div><strong data-store-name>{tienda}</strong><p>eSIM y chips para Telcel, AT&amp;T, Bait, Movistar, Unefon y más. Precios en pesos mexicanos (MXN) con IVA incluido.</p></div>
+    <div><strong>Ayuda</strong><p><a href="estado.html">Consultar mi pedido</a><br><a href="contacto.html">Contacto</a><br><a href="/#faq">Preguntas frecuentes</a><br><a href="aviso-privacidad.html">Aviso de privacidad</a><br><a href="terminos.html">Términos y condiciones</a></p></div>
     <div><strong>Contacto</strong><p id="footer-wa"></p><p id="footer-email"></p></div>
   </div>
-  <div class="container"><p class="muted">© <span id="year">2026</span> <span data-store-name>Tienda eSIM México</span>. Las marcas mencionadas pertenecen a sus respectivos dueños; no somos operador oficial.</p></div>
+  <div class="container"><p class="muted">© <span id="year">2026</span> <span data-store-name>{tienda}</span>. Las marcas mencionadas pertenecen a sus respectivos dueños; no somos operador oficial.</p></div>
 </footer>
 </body>
 </html>

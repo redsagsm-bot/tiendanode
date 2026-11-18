@@ -45,14 +45,19 @@
   };
 
   let cfgPromise = null;
-  const config = () => (cfgPromise ||= api('/api/config').catch(() => ({ storeName: 'Tienda eSIM México', whatsapp: '', paypal: { enabled: false }, estados: [] })));
+  const config = () => (cfgPromise ||= api('/api/config').catch(() => ({ storeName: 'eSIMGO.MX', whatsapp: '', paypal: { enabled: false }, estados: [] })));
 
   const CARRIER_COLORS = { Telcel: '#0033a0', 'AT&T': '#00a8e0', Bait: '#d39e00', Movistar: '#5bc500', Unefon: '#c9a600', Virgin: '#cc0000', Otro: '#6b7280' };
   const carrierColor = (c) => CARRIER_COLORS[c] || '#475569';
 
-  function thumb(p) {
+  function thumb(p, opts = {}) {
     const t = h('div', { class: 'thumb', style: { '--c': carrierColor(p.carrier) } }, h('span', { text: p.carrier + (p.dataAmount ? ' · ' + p.dataAmount : '') }));
-    if (p.image) t.append(h('img', { src: p.image, alt: p.name, loading: 'lazy' }));
+    if (p.image) {
+      const attrs = { src: p.image, alt: p.name, loading: opts.loading || 'lazy', decoding: 'async' };
+      if (p.imageWidth) attrs.width = p.imageWidth;
+      if (p.imageHeight) attrs.height = p.imageHeight;
+      t.append(h('img', attrs));
+    }
     return t;
   }
   function productCard(p) {
@@ -85,15 +90,27 @@
   function layout() {
     const toggle = $('.nav-toggle'), menu = $('#menu');
     if (toggle && menu) toggle.addEventListener('click', () => { const o = menu.classList.toggle('open'); toggle.setAttribute('aria-expanded', String(o)); });
-    const here = location.pathname.split('/').pop() || 'index.html';
-    document.querySelectorAll('#menu a').forEach((a) => { if (a.getAttribute('href') === here) a.setAttribute('aria-current', 'page'); });
+    const path = location.pathname.replace(/\/+$/, '') || '/';
+    const here = (path === '/' || path.endsWith('/index.html')) ? '/' : path.split('/').pop();
+    document.querySelectorAll('#menu a').forEach((a) => {
+      let href = (a.getAttribute('href') || '').split('#')[0].split('?')[0];
+      if (href === 'index.html' || href === '/' || href === '') href = '/';
+      const target = href === '/' ? '/' : href.split('/').pop();
+      if (target && target === here) a.setAttribute('aria-current', 'page');
+    });
     Cart.badge();
     window.addEventListener('storage', Cart.badge);
     const y = $('#year'); if (y) y.textContent = String(new Date().getFullYear());
     config().then((c) => {
       document.querySelectorAll('[data-store-name]').forEach((e) => { e.textContent = c.storeName; });
-      const hb = document.querySelector('.hero-banner'); const bl = c.banners && c.banners.length ? c.banners : c.banner ? [c.banner] : []; if (hb && bl.length) { App.carousel(hb, bl); hb.hidden = false; }
-      if (c.logo) document.querySelectorAll('.brand .logo').forEach((e) => { e.classList.add('has-img'); e.textContent = ''; e.append(h('img', { src: '/uploads/' + c.logo, alt: '' })); });
+      const hb = document.querySelector('.hero-banner'); const bl = c.banners && c.banners.length ? c.banners : c.banner ? [c.banner] : []; if (hb && bl.length) { App.carousel(hb, bl, { alt: c.storeName || 'eSIMGO.MX', meta: c.bannerMeta || [] }); hb.hidden = false; }
+      if (c.logo) document.querySelectorAll('.brand .logo').forEach((e) => {
+        e.classList.add('has-img'); e.textContent = '';
+        const attrs = { src: '/uploads/' + c.logo, alt: c.storeName || 'eSIMGO.MX', decoding: 'async' };
+        if (c.logoWidth) attrs.width = c.logoWidth;
+        if (c.logoHeight) attrs.height = c.logoHeight;
+        e.append(h('img', attrs));
+      });
       if (document.title.includes('{tienda}')) document.title = document.title.replace('{tienda}', c.storeName);
       if (c.whatsapp) {
         document.body.append(h('a', { class: 'wa-float' + (c.tidio ? ' wa-left' : ''), href: waLink(c.whatsapp, 'Hola, tengo una pregunta sobre la tienda'), target: '_blank', rel: 'noopener', text: 'WhatsApp' }));
@@ -127,8 +144,17 @@ App.loadPayPal = (clientId) => new Promise((resolve, reject) => {
 });
 
 // Carrusel del banner de inicio: cambia solo cada 5 s, se pausa al pasar el mouse y tiene puntos para navegar.
-App.carousel = (el, files) => {
-  const h = App.h, slides = files.map((f, i) => h('img', { src: '/uploads/' + f, alt: '', class: 'slide' + (i === 0 ? ' on' : ''), loading: i === 0 ? 'eager' : 'lazy' }));
+App.carousel = (el, files, opts = {}) => {
+  const h = App.h;
+  const altBase = opts.alt || 'eSIMGO.MX';
+  const meta = opts.meta || [];
+  const slides = files.map((f, i) => {
+    const m = meta[i] || {};
+    const attrs = { src: '/uploads/' + f, alt: altBase + ' — banner ' + (i + 1), class: 'slide' + (i === 0 ? ' on' : ''), loading: i === 0 ? 'eager' : 'lazy', decoding: 'async' };
+    if (m.width) attrs.width = m.width;
+    if (m.height) attrs.height = m.height;
+    return h('img', attrs);
+  });
   el.append(...slides);
   if (slides.length < 2) return;
   let cur = 0, timer = null;
