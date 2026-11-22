@@ -147,7 +147,7 @@
     const tbody = h('tbody');
     for (const p of productos) tbody.append(h('tr', {},
       h('td', {}, p.image ? h('img', { src: p.image, alt: '', style: { width: '48px', height: '36px', objectFit: 'cover', borderRadius: '6px' } }) : '—'),
-      h('td', {}, h('strong', { text: p.name }), h('div', { class: 'muted', text: p.carrier + ' · ' + (p.type === 'esim' ? 'eSIM' : p.type === 'electronicos' ? 'Electrónicos' : 'SIM física') })),
+      h('td', {}, h('strong', { text: p.name }), h('div', { class: 'muted', text: p.carrier + ' · ' + (p.type === 'esim' ? 'eSIM' : 'SIM física') })),
       h('td', { text: money(p.price) }), h('td', { text: String(p.stock) }),
       h('td', { text: (p.active ? 'Activo' : 'Oculto') + (p.featured ? ' · Destacado' : '') }),
       h('td', {}, h('button', { class: 'btn sm secondary', type: 'button', onclick: () => productDialog(p), text: 'Editar' }), ' ',
@@ -157,7 +157,7 @@
         }, text: 'Eliminar' }))));
     clear(main).append(h('div', { class: 'toolbar' }, h('h1', { style: { margin: 0, flex: 1 }, text: 'Productos' }), h('button', { class: 'btn', type: 'button', onclick: () => productDialog(null), text: '+ Nuevo producto' })),
       h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Imagen', 'Producto', 'Precio', 'Stock', 'Estado', ''].map((t) => h('th', { text: t })))), tbody)),
-      h('p', { class: 'muted', text: 'El stock de eSIM es la cantidad de códigos disponibles (se administra en Inventario eSIM). El stock de SIM física y Electrónicos se edita aquí.' }));
+      h('p', { class: 'muted', text: 'El stock de eSIM es la cantidad de códigos disponibles (se administra en Inventario eSIM). El stock de SIM física se edita aquí.' }));
   };
   function dialog(title, body, actions) {
     const d = h('dialog', {}, h('div', { class: 'dlg-body' }, h('h2', { text: title }), body), h('div', { class: 'dlg-foot' }, actions, h('button', { class: 'btn secondary', type: 'button', onclick: () => d.close(), text: 'Cerrar' })));
@@ -168,7 +168,7 @@
     const f = {
       name: h('input', { value: p ? p.name : '', maxlength: 120, required: true }),
       carrier: h('input', { value: p ? p.carrier : 'Telcel', maxlength: 40, list: 'carriers', required: true }),
-      type: h('select', {}, h('option', { value: 'esim', text: 'eSIM' }), h('option', { value: 'sim', text: 'SIM física (chip)' }), h('option', { value: 'electronicos', text: 'Electrónicos' })),
+      type: h('select', {}, h('option', { value: 'esim', text: 'eSIM' }), h('option', { value: 'sim', text: 'SIM física (chip)' })),
       price: h('input', { type: 'number', step: '0.01', min: '0', value: p ? (p.price / 100).toFixed(2) : '', required: true }),
       dataAmount: h('input', { value: p ? p.dataAmount || '' : '', maxlength: 60, placeholder: 'Ej. 10 GB' }),
       validityDays: h('input', { type: 'number', min: '0', value: p ? p.validityDays || 0 : 30 }),
@@ -182,9 +182,9 @@
     let image = p && p.image ? p.image.replace('/uploads/', '') : '';
     const preview = h('div', {}, image ? h('img', { src: '/uploads/' + image, alt: '', style: { maxWidth: '160px', borderRadius: '8px' } }) : null);
     const m = msgBox();
-    const stockField = field('Stock (piezas físicas / electrónicos)', f.stock);
+    const stockField = field('Stock (piezas físicas)', f.stock);
     const codesField = field('Inventario eSIM: agregar códigos (opcional)', f.codes);
-    const syncType = () => { stockField.classList.toggle('hidden', !['sim','electronicos'].includes(f.type.value)); codesField.classList.toggle('hidden', f.type.value !== 'esim'); };
+    const syncType = () => { stockField.classList.toggle('hidden', f.type.value !== 'sim'); codesField.classList.toggle('hidden', f.type.value !== 'esim'); };
     f.type.addEventListener('change', syncType); syncType();
     f.file.addEventListener('change', async () => {
       if (!f.file.files[0]) return;
@@ -224,96 +224,185 @@
     sel.value = invProduct;
     const { codigos } = invProduct ? await api('/api/admin/inventario?product_id=' + encodeURIComponent(invProduct)) : { codigos: [] };
     const m = msgBox();
-    const code = h('input', { placeholder: 'Código de activación' }), lpa = h('input', { placeholder: 'LPA (opcional)' });
+    const code = h('input', { placeholder: 'Código / ICCID / código de activación', maxlength: 300 }), lpa = h('input', { placeholder: 'LPA:1$smdp.ejemplo.com$XXXX (opcional)', maxlength: 500 }),
+      qr = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif' }), bulk = h('textarea', { rows: 6, placeholder: 'Un código por línea. Opcional: código,LPA' }),
+      csv = h('input', { type: 'file', accept: '.csv,.txt,text/csv,text/plain' });
+    csv.addEventListener('change', () => { const file = csv.files[0]; if (!file) return; if (file.size > 1024 * 1024) return show(m, 'Archivo demasiado grande (máx. 1 MB)'); file.text().then((t) => { bulk.value = t; show(m, 'CSV cargado: revisa y presiona "Agregar en lote"', 'info'); }); });
+    const send = async (payload) => {
+      try { const r = await api('/api/admin/inventario', 'POST', { product_id: Number(invProduct), ...payload }); toast(`Agregados: ${r.added}. Duplicados ignorados: ${r.duplicates}`); go('inventario'); }
+      catch (e) { show(m, e.message); }
+    };
+    const manualQty = h('input', { type: 'number', min: '1', max: '1000', value: '50' });
+    const sendManual = async (extra) => {
+      try { const r = await api('/api/admin/inventario-manual', 'POST', { qty: Number(manualQty.value), ...extra }); toast(`Cupos agregados: ${r.added} (${r.products} producto/s)`); go('inventario'); }
+      catch (e) { show(m, e.message); }
+    };
+    const tbody = h('tbody');
+    for (const c of codigos) tbody.append(h('tr', {}, h('td', { text: c.code, style: { fontFamily: 'monospace', wordBreak: 'break-all' } }), h('td', { text: c.status + (c.hasQr ? ' · QR' : '') }), h('td', { text: c.order || '—' }), h('td', { text: date(c.createdAt) }),
+      h('td', {}, c.status === 'disponible' ? h('button', { class: 'btn sm danger', type: 'button', onclick: async () => { if (!confirm('¿Borrar este código?')) return; try { await api('/api/admin/inventario/' + c.id, 'DELETE'); go('inventario'); } catch (e) { alert(e.message); } }, text: 'Borrar' }) : null)));
     clear(main).append(h('h1', { text: 'Inventario eSIM' }),
-      h('div', { class: 'toolbar' }, field('Producto', sel)),
-      h('form', { class: 'panel', onsubmit: async (e) => {
-        e.preventDefault();
-        if (!invProduct) return show(m, 'Selecciona un producto');
-        try { await api('/api/admin/inventario', 'POST', { product_id: Number(invProduct), code: code.value.trim(), lpa: lpa.value.trim() }); toast('Código agregado'); code.value = ''; lpa.value = ''; go('inventario'); }
-        catch (err) { show(m, err.message); }
-      } }, h('h2', { text: 'Agregar un código' }), h('div', { class: 'row two' }, field('Código', code), field('LPA', lpa)), m, h('button', { class: 'btn', type: 'submit', text: 'Agregar' })),
-      h('h2', { text: 'Códigos' }),
-      codigos.length ? h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Código', 'Estado', 'Pedido', ''].map((t) => h('th', { text: t })))),
-        h('tbody', {}, codigos.map((c) => h('tr', {}, h('td', {}, h('code', { text: c.code })), h('td', { text: c.status }), h('td', { text: c.orderNumber || '—' }),
-          h('td', {}, c.status === 'disponible' ? h('button', { class: 'btn sm danger', type: 'button', onclick: async () => {
-            if (!confirm('¿Eliminar este código?')) return;
-            try { await api('/api/admin/inventario/' + c.id, 'DELETE'); toast('Eliminado'); go('inventario'); } catch (e) { alert(e.message); }
-          }, text: 'Eliminar' }) : null)))))) : h('p', { class: 'muted', text: 'Sin códigos para este producto.' }));
+      resumen.length ? null : h('p', { class: 'notice', text: 'Primero crea un producto de tipo eSIM.' }),
+      h('div', { class: 'toolbar' }, h('label', {}, 'Producto ', sel)),
+      h('div', { class: 'layout' },
+        h('div', { class: 'panel' }, h('h2', { text: 'Agregar un código' }), field('Código', code), field('LPA (opcional)', lpa), field('Imagen QR (opcional)', qr),
+          h('button', { class: 'btn', type: 'button', onclick: async () => {
+            try { const payload = { code: code.value.trim(), lpa: lpa.value.trim() }; if (qr.files[0]) payload.qr = await fileToB64(qr.files[0]); await send(payload); } catch (e) { show(m, e.message); }
+          }, text: 'Agregar código' })),
+        h('div', { class: 'panel' }, h('h2', { text: 'Cupos de entrega manual' }),
+          h('p', { class: 'muted', text: 'Suma stock sin códigos reales: al venderse, el cliente ve "te enviaremos tu eSIM por correo" y tú le mandas el código.' }),
+          manualQty,
+          h('div', { class: 'inline' },
+            h('button', { class: 'btn sm', type: 'button', onclick: () => sendManual({ product_id: Number(invProduct) }), text: 'Agregar a este producto' }),
+            h('button', { class: 'btn sm secondary', type: 'button', onclick: () => confirm('¿Agregar esa cantidad a TODOS los productos eSIM?') && sendManual({}), text: 'Agregar a todos los eSIM' }))),
+        h('div', { class: 'panel' }, h('h2', { text: 'Carga masiva / CSV' }), field('Códigos', bulk), field('O importa un archivo CSV (columnas: codigo,lpa)', csv),
+          h('button', { class: 'btn', type: 'button', onclick: () => send({ bulk: bulk.value }), text: 'Agregar en lote' }))),
+      m, h('h2', { class: 'mt', text: `Códigos (${codigos.length})` }),
+      h('p', { class: 'muted', text: 'Los códigos reservados o asignados se muestran enmascarados por seguridad.' }),
+      h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Código', 'Estado', 'Pedido', 'Alta', ''].map((t) => h('th', { text: t })))), tbody)));
   };
 
   // ------------------------------------------------------------ Pedidos
+  let pedQ = '', pedStatus = '';
   VIEWS.pedidos = async () => {
-    const { pedidos } = await api('/api/admin/pedidos');
+    const qs = new URLSearchParams(); if (pedQ) qs.set('q', pedQ); if (pedStatus) qs.set('status', pedStatus);
+    const { pedidos, statuses } = await api('/api/admin/pedidos?' + qs);
+    const q = h('input', { type: 'search', placeholder: 'Número, nombre, correo o teléfono', value: pedQ });
+    const st = h('select', {}, h('option', { value: '', text: 'Todos los estados' }), Object.entries(statuses).map(([k, v]) => h('option', { value: k, text: v })));
+    st.value = pedStatus;
+    const tbody = h('tbody');
+    for (const o of pedidos) tbody.append(h('tr', {}, h('td', {}, h('button', { class: 'btn sm secondary', type: 'button', onclick: () => orderDialog(o.id), text: o.number })),
+      h('td', { text: date(o.createdAt) }), h('td', {}, o.name, h('div', { class: 'muted', text: o.email })), h('td', { text: money(o.total) }),
+      h('td', { text: o.paymentMethod === 'paypal' ? 'PayPal' : o.paymentMethod === 'stripe' ? 'Stripe' : 'Transferencia' }), h('td', { text: o.statusLabel })));
     clear(main).append(h('h1', { text: 'Pedidos' }),
-      pedidos.length ? h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Pedido', 'Cliente', 'Total', 'Estado', 'Fecha', ''].map((t) => h('th', { text: t })))),
-        h('tbody', {}, pedidos.map((o) => h('tr', {}, h('td', {}, h('strong', { text: o.number })), h('td', { text: o.name + ' · ' + o.email }), h('td', { text: money(o.total) }),
-          h('td', { text: o.status }), h('td', { text: date(o.created_at) }),
-          h('td', {}, h('button', { class: 'btn sm secondary', type: 'button', onclick: () => orderDialog(o), text: 'Ver' }))))))) : h('p', { class: 'muted', text: 'Aún no hay pedidos.' }));
+      h('form', { class: 'toolbar', onsubmit: (e) => { e.preventDefault(); pedQ = q.value.trim(); pedStatus = st.value; go('pedidos'); } }, q, st, h('button', { class: 'btn sm', type: 'submit', text: 'Buscar' })),
+      h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Pedido', 'Fecha', 'Cliente', 'Total', 'Pago', 'Estado'].map((t) => h('th', { text: t })))), tbody)),
+      pedidos.length ? null : h('p', { class: 'muted', text: 'No hay pedidos.' }));
   };
-  function orderDialog(o) {
+  async function orderDialog(id) {
+    const { pedido: o, enlace } = await api('/api/admin/pedidos/' + id);
     const m = msgBox();
+    const act = async (path, body, okText) => { try { const r = await api(`/api/admin/pedidos/${id}/${path}`, 'POST', body); toast(okText || 'Listo'); d.close(); if (r.problems && r.problems.length) alert('Atención: ' + r.problems.join('; ')); go('pedidos'); orderDialog(id); } catch (e) { show(m, e.message + (e.data && e.data.link ? ' Enlace: ' + e.data.link : '')); } };
+    const notes = h('textarea', { rows: 3, value: o.notes });
+    const a = o.address;
+    const actions = h('div', { class: 'inline mt' });
+    if (o.status === 'pendiente_pago' || o.status === 'expirado') {
+      if (o.paymentMethod === 'manual') actions.append(h('button', { class: 'btn green sm', type: 'button', onclick: () => confirm('¿Confirmar que recibiste el pago de ' + money(o.total) + '? Se entregarán los códigos eSIM.') && act('confirmar', {}, 'Pago confirmado'), text: 'Confirmar pago recibido' }));
+      actions.append(h('button', { class: 'btn sm danger', type: 'button', onclick: () => confirm('¿Cancelar el pedido y liberar el stock?') && act('cancelar', {}, 'Pedido cancelado'), text: 'Cancelar pedido' }));
+    }
+    if (o.paidAt && o.status === 'pagado' && o.items.some((i) => i.type === 'esim' && i.codes.length < i.qty)) actions.append(h('button', { class: 'btn sm', type: 'button', onclick: () => act('confirmar', {}, 'Códigos asignados'), text: 'Asignar códigos faltantes' }));
+    for (const n of o.next) {
+      if (n === 'enviado') {
+        const tr = h('input', { placeholder: 'Número de guía', maxlength: 80, style: { width: 'auto' } }), sc = h('input', { placeholder: 'Paquetería (ej. Estafeta)', maxlength: 60, style: { width: 'auto' } });
+        actions.append(h('span', { class: 'inline' }, tr, sc, h('button', { class: 'btn sm', type: 'button', onclick: () => act('estado', { status: 'enviado', tracking: tr.value.trim(), shipCarrier: sc.value.trim() }, 'Marcado como enviado'), text: 'Marcar enviado' })));
+      } else actions.append(h('button', { class: 'btn sm', type: 'button', onclick: () => act('estado', { status: n }, 'Estado actualizado'), text: 'Marcar ' + (n === 'preparando' ? 'preparando' : n) }));
+    }
+    if (o.paidAt && o.status !== 'reembolsado') {
+      actions.append(h('button', { class: 'btn sm secondary', type: 'button', onclick: () => act('reenviar', {}, 'Correo enviado'), text: 'Reenviar correo' }));
+      actions.append(h('button', { class: 'btn sm danger', type: 'button', onclick: () => { const note = prompt('Nota de reembolso (hazlo primero en PayPal o por transferencia):'); if (note) act('reembolso', { note }, 'Marcado como reembolsado'); }, text: 'Marcar reembolsado' }));
+    }
     const body = h('div', {},
-      h('p', {}, h('strong', { text: 'Cliente: ' }), o.name + ' · ' + o.email + (o.phone ? ' · ' + o.phone : '')),
-      o.address ? h('p', {}, h('strong', { text: 'Dirección: ' }), o.address) : null,
-      h('p', {}, h('strong', { text: 'Total: ' }), money(o.total) + ' · ' + o.payment_method),
-      h('p', {}, h('strong', { text: 'Estado: ' }), o.status),
-      o.items ? h('ul', {}, o.items.map((i) => h('li', { text: `${i.qty} × ${i.name}` }))) : null,
-      m);
-    dialog('Pedido ' + o.number, body, null);
+      h('p', {}, h('strong', { text: o.statusLabel }), ' · ', o.paymentMethod === 'paypal' ? 'PayPal' : o.paymentMethod === 'stripe' ? 'Stripe' : 'Transferencia/WhatsApp', ' · Creado ', date(o.createdAt), o.paidAt ? ' · Pagado ' + date(o.paidAt) : ''),
+      h('p', {}, o.name, ' · ', h('a', { href: 'mailto:' + o.email, text: o.email }), ' · ', o.phone),
+      a ? h('p', { text: `Envío: ${a.street}, Col. ${a.colonia}, C.P. ${a.cp}, ${a.city}, ${a.state}${a.refs ? ' (' + a.refs + ')' : ''}` }) : null,
+      o.tracking ? h('p', { text: `Guía: ${o.tracking} ${o.shipCarrier}` }) : null,
+      o.paypalOrderId ? h('p', { class: 'muted', text: `PayPal orden ${o.paypalOrderId}${o.paypalCaptureId ? ' · captura ' + o.paypalCaptureId : ''}` }) : null,
+      h('div', { class: 'table-wrap' }, h('table', {}, h('tbody', {}, o.items.map((i) => h('tr', {}, h('td', { text: `${i.qty} × ${i.name}` }), h('td', { text: money(i.unitPrice * i.qty) }),
+        h('td', { text: i.type === 'esim' ? (i.codes.length ? i.codes.map((c) => c.code).join(', ') : 'Sin códigos asignados') : 'SIM física' })))),
+        h('tr', {}, h('td', { text: 'Envío' }), h('td', { text: money(o.shipping) }), h('td')), h('tr', {}, h('th', { text: 'Total' }), h('th', { text: money(o.total) }), h('th')))),
+      h('p', { class: 'mt' }, 'Enlace privado del cliente: ', h('input', { readonly: true, value: enlace, onfocus: (e) => e.target.select() })),
+      o.refundNote ? h('p', { class: 'notice', text: 'Reembolso: ' + o.refundNote }) : null,
+      field('Notas internas', notes), h('button', { class: 'btn sm secondary', type: 'button', onclick: async () => { try { await api(`/api/admin/pedidos/${id}/nota`, 'POST', { notes: notes.value }); toast('Notas guardadas'); } catch (e) { show(m, e.message); } }, text: 'Guardar notas' }),
+      actions, m);
+    const d = dialog('Pedido ' + o.number, body, null);
   }
 
-  // ------------------------------------------------------------ Clientes
+  // ------------------------------------------------------------ Clientes / mensajes
   VIEWS.clientes = async () => {
     const { clientes } = await api('/api/admin/clientes');
-    clear(main).append(h('h1', { text: 'Clientes' }),
-      clientes.length ? h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Nombre', 'Correo', 'Teléfono', 'Pedidos', 'Gastado'].map((t) => h('th', { text: t })))),
-        h('tbody', {}, clientes.map((c) => h('tr', {}, h('td', { text: c.name || '—' }), h('td', { text: c.email }), h('td', { text: c.phone || '—' }), h('td', { text: String(c.orders) }), h('td', { text: money(c.spent) })))))) : h('p', { class: 'muted', text: 'Sin clientes.' }));
+    clear(main).append(h('h1', { text: 'Clientes' }), h('div', { class: 'table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, ['Nombre', 'Correo', 'Teléfono', 'Pedidos', 'Total pagado', 'Alta'].map((t) => h('th', { text: t })))),
+      h('tbody', {}, clientes.map((c) => h('tr', {}, h('td', { text: c.name }), h('td', { text: c.email }), h('td', { text: c.phone }), h('td', { text: String(c.pedidos) }), h('td', { text: money(c.gastado) }), h('td', { text: date(c.createdAt) })))))),
+      clientes.length ? null : h('p', { class: 'muted', text: 'Aún no hay clientes.' }));
   };
-
-  // ------------------------------------------------------------ Mensajes
   VIEWS.mensajes = async () => {
     const { mensajes } = await api('/api/admin/mensajes');
-    clear(main).append(h('h1', { text: 'Mensajes de contacto' }),
-      mensajes.length ? mensajes.map((m) => h('div', { class: 'panel', style: { marginBottom: '1rem' } },
-        h('div', { style: { display: 'flex', justifyContent: 'space-between' } }, h('strong', { text: m.name + ' · ' + m.email }), h('span', { class: 'muted', text: date(m.created_at) })),
-        m.phone ? h('p', { class: 'muted', text: m.phone }) : null,
-        h('p', { text: m.message }))) : h('p', { class: 'muted', text: 'Sin mensajes.' }));
+    clear(main).append(h('h1', { text: 'Mensajes de contacto' }), mensajes.length ? null : h('p', { class: 'muted', text: 'No hay mensajes.' }),
+      mensajes.map((x) => h('div', { class: 'panel', style: { marginBottom: '.7rem' } }, h('strong', { text: x.name }), ' · ', h('a', { href: 'mailto:' + x.email, text: x.email }), x.phone ? ' · ' + x.phone : '', h('span', { class: 'muted', text: ' · ' + date(x.created_at) }),
+        h('p', { style: { whiteSpace: 'pre-wrap' }, text: x.message }),
+        h('button', { class: 'btn sm danger', type: 'button', onclick: async () => { if (confirm('¿Borrar mensaje?')) { await api('/api/admin/mensajes/' + x.id, 'DELETE'); go('mensajes'); } }, text: 'Borrar' }))));
   };
 
   // ------------------------------------------------------------ Ajustes
   VIEWS.ajustes = async () => {
     const s = await api('/api/admin/ajustes');
     const m = msgBox();
-    const fields = {
-      storeName: h('input', { value: s.storeName || '' }),
-      contactEmail: h('input', { type: 'email', value: s.contactEmail || '' }),
-      whatsapp: h('input', { value: s.whatsapp || '' }),
-      shippingCost: h('input', { type: 'number', step: '0.01', value: ((s.shippingCost || 0) / 100).toFixed(2) }),
-      bankInfo: h('textarea', { rows: 4, value: s.bankInfo || '' }),
-    };
-    clear(main).append(h('h1', { text: 'Ajustes de la tienda' }),
-      h('form', { class: 'panel', onsubmit: async (e) => {
-        e.preventDefault();
-        try {
-          await api('/api/admin/ajustes', 'POST', {
-            storeName: fields.storeName.value.trim(),
-            contactEmail: fields.contactEmail.value.trim(),
-            whatsapp: fields.whatsapp.value.trim(),
-            shippingCost: Math.round(Number(fields.shippingCost.value || 0) * 100),
-            bankInfo: fields.bankInfo.value,
-          });
-          toast('Ajustes guardados');
-        } catch (err) { show(m, err.message); }
-      } },
-        field('Nombre de la tienda', fields.storeName),
-        field('Correo de contacto', fields.contactEmail),
-        field('WhatsApp', fields.whatsapp),
-        field('Costo de envío (MXN)', fields.shippingCost),
-        field('Instrucciones de transferencia SPEI', fields.bankInfo),
-        m,
-        h('button', { class: 'btn', type: 'submit', text: 'Guardar' })));
+    const f = { storeName: h('input', { value: s.storeName, maxlength: 80 }), contactEmail: h('input', { type: 'email', value: s.contactEmail, maxlength: 160 }), whatsapp: h('input', { value: s.whatsapp, maxlength: 20, placeholder: '5215512345678' }),
+      shippingCost: h('input', { type: 'number', step: '0.01', min: '0', value: (s.shippingCost / 100).toFixed(2) }), bankInfo: h('textarea', { rows: 4, maxlength: 2000, value: s.bankInfo }),
+      ppMode: h('select', {}, h('option', { value: 'sandbox', text: 'Sandbox (pruebas)' }), h('option', { value: 'live', text: 'Live (producción)' })), ppClient: h('input', { value: s.paypal.clientId, maxlength: 200, autocomplete: 'off' }),
+      ppSecret: h('input', { type: 'password', maxlength: 200, autocomplete: 'new-password', placeholder: s.paypal.secretSet ? 'Guardado: ' + s.paypal.secretMasked + ' (deja vacío para conservar)' : 'Secret de PayPal' }) };
+    let logo = s.logo || '';
+    const logoPrev = h('div', {}, logo ? h('img', { src: '/uploads/' + logo, alt: 'Logotipo de la tienda', style: { maxHeight: '60px' } }) : null);
+    const logoFile = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif' });
+    logoFile.addEventListener('change', async () => {
+      if (!logoFile.files[0]) return;
+      try { const r = await api('/api/admin/upload', 'POST', await fileToB64(logoFile.files[0])); logo = r.url.replace('/uploads/', ''); clear(logoPrev).append(h('img', { src: r.url, alt: 'Logotipo de la tienda', style: { maxHeight: '60px' } })); show(m, 'Logotipo subido: pulsa "Guardar ajustes"', 'ok'); }
+      catch (e) { show(m, e.message); logoFile.value = ''; }
+    });
+    let banners = (s.banners || (s.banner ? [s.banner] : [])).slice();
+    const banList = h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '.6rem', margin: '.4rem 0' } });
+    const drawBanners = () => { clear(banList); banners.forEach((b, i) => banList.append(h('div', { style: { textAlign: 'center' } },
+      h('img', { src: '/uploads/' + b, alt: 'Banner ' + (i + 1), style: { height: '70px', borderRadius: '8px', display: 'block' } }),
+      h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { banners.splice(i, 1); drawBanners(); show(m, 'Imagen quitada: pulsa "Guardar ajustes"', 'info'); }, text: 'Quitar' })))); };
+    drawBanners();
+    const banFile = h('input', { type: 'file', multiple: true, accept: 'image/png,image/jpeg,image/webp,image/gif' });
+    banFile.addEventListener('change', async () => {
+      const files = [...banFile.files]; banFile.value = '';
+      if (!files.length) return;
+      let added = 0, err = '';
+      for (const file of files) {
+        if (banners.length >= 6) { err = 'Máximo 6 imágenes en el banner'; break; }
+        try { const r = await api('/api/admin/upload', 'POST', await fileToB64(file)); banners.push(r.url.replace('/uploads/', '')); added++; drawBanners(); }
+        catch (e) { err = file.name + ': ' + e.message; }
+      }
+      if (added && !err) show(m, added + (added === 1 ? ' imagen agregada' : ' imágenes agregadas') + ': pulsa "Guardar ajustes"', 'ok');
+      else if (added) show(m, added + ' agregada(s). ' + err + '. Pulsa "Guardar ajustes"', 'info');
+      else show(m, err);
+    });
+    f.ppMode.value = s.paypal.mode;
+    if (s.paypal.fromEnv) [f.ppMode, f.ppClient, f.ppSecret].forEach((x) => { x.disabled = true; });
+    const tgm = msgBox();
+    const testTo = h('input', { type: 'email', placeholder: 'correo@ejemplo.com', value: s.contactEmail, style: { width: 'auto' } }), tm = msgBox();
+    clear(main).append(h('h1', { text: 'Ajustes' }),
+      h('div', { class: 'layout' },
+        h('div', {},
+          h('div', { class: 'panel' }, h('h2', { text: 'Tienda' }), field('Nombre de la tienda', f.storeName), field('Logotipo (PNG, JPG, WEBP o GIF, máx. 8 MB)', logoFile), logoPrev,
+            h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { logo = ''; clear(logoPrev); show(m, 'Logotipo quitado: pulsa "Guardar ajustes"', 'info'); }, text: 'Quitar logotipo' }),
+            field('Banner de la página de inicio: agrega hasta 6 imágenes (puedes elegir varias a la vez) y se mueven solas (PNG, JPG, WEBP o GIF, máx. 8 MB c/u; ideal 1600×500)', banFile), banList,
+            h('div', { class: 'row two' }, field('Correo de contacto', f.contactEmail), field('WhatsApp (con lada, ej. 5215512345678)', f.whatsapp)),
+            field('Costo de envío para SIM física (MXN)', f.shippingCost), field('Instrucciones para transferencia / depósito', f.bankInfo)),
+          h('div', { class: 'panel mt' }, h('h2', { text: 'PayPal' }),
+            s.paypal.fromEnv ? h('p', { class: 'notice info', text: 'PayPal está configurado con variables de entorno (PAYPAL_CLIENT_ID / PAYPAL_SECRET). Para cambiarlo edítalas en Railway.' }) : null,
+            s.paypal.mock ? h('p', { class: 'notice', text: 'Modo de PRUEBAS: PayPal simulado.' }) : null,
+            field('Modo', f.ppMode), field('Client ID', f.ppClient), field('Secret (nunca se envía al navegador)', f.ppSecret),
+            h('div', { class: 'inline' }, s.paypal.secretSet && !s.paypal.fromEnv ? h('button', { class: 'btn sm secondary', type: 'button', onclick: async () => { if (!confirm('¿Borrar el Secret de PayPal? Se desactivará el pago con PayPal.')) return; try { await api('/api/admin/ajustes', 'PUT', { paypal: { clearSecret: true } }); go('ajustes'); } catch (e) { show(m, e.message); } }, text: 'Borrar Secret' }) : null,
+              h('button', { class: 'btn sm secondary', type: 'button', onclick: async () => { try { const r = await api('/api/admin/paypal-test', 'POST'); show(m, 'Conexión con PayPal correcta' + (r.mode ? ' (' + r.mode + ')' : ''), 'ok'); } catch (e) { show(m, e.message); } }, text: 'Probar conexión PayPal' }))),
+          m, h('button', { class: 'btn mt', type: 'button', onclick: async () => {
+            const body = { logo, banners, storeName: f.storeName.value.trim(), contactEmail: f.contactEmail.value.trim(), whatsapp: f.whatsapp.value.trim(), shippingCost: f.shippingCost.value, bankInfo: f.bankInfo.value };
+            if (!s.paypal.fromEnv) { body.paypal = { mode: f.ppMode.value, clientId: f.ppClient.value.trim() }; if (f.ppSecret.value) body.paypal.secret = f.ppSecret.value.trim(); }
+            try { await api('/api/admin/ajustes', 'PUT', body); toast('Ajustes guardados'); go('ajustes'); } catch (e) { show(m, e.message); }
+          }, text: 'Guardar ajustes' })),
+        h('div', {},
+          h('div', { class: 'panel' }, h('h2', { text: 'Correo (SMTP)' }),
+            h('p', { class: s.smtp.configured ? 'notice ok' : 'notice', text: s.smtp.configured ? `Configurado: ${s.smtp.host} (remitente ${s.smtp.from})` : 'No configurado (opcional). Define SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS y SMTP_FROM en las variables de entorno.' }),
+            h('div', { class: 'inline' }, testTo, h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await api('/api/admin/smtp-test', 'POST', { to: testTo.value.trim() }); show(tm, 'Correo de prueba enviado', 'ok'); } catch (e) { show(tm, e.message); } }, text: 'Enviar prueba' })), tm),
+          h('div', { class: 'panel mt' }, h('h2', { text: 'Avisos por Telegram' }),
+            h('p', { class: s.telegram.configured ? 'notice ok' : 'notice', text: s.telegram.configured ? 'Configurado: recibirás avisos de pedidos nuevos, pagos confirmados y stock bajo.' : 'No configurado (opcional). Define TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en las variables de entorno.' }),
+            h('div', { class: 'inline' }, h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await api('/api/admin/telegram-test', 'POST'); show(tgm, 'Mensaje de prueba enviado a Telegram', 'ok'); } catch (e) { show(tgm, e.message); } }, text: 'Enviar prueba' })), tgm),
+          h('div', { class: 'panel mt' }, h('h2', { text: 'Copia de seguridad' }),
+            h('p', { class: 'notice', text: 'Descarga la base de datos (productos, pedidos, ajustes) y las imágenes en un archivo .tar.gz. Guárdalo en un lugar seguro: contiene datos de clientes.' }),
+            h('a', { class: 'btn sm', href: '/api/admin/respaldo', download: '', text: 'Descargar respaldo' })),
+          h('div', { class: 'mt' }, renderChangePassword(false)))));
   };
 
-  start();
+  document.addEventListener('DOMContentLoaded', start);
 })();
