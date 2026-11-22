@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const list = h('div', { class: 'mt' });
     wrap.append(h('h2', { text: 'Productos' }), list);
     for (const it of o.items) {
-      const el = h('div', { class: 'cart-item' }, h('div', {}, h('strong', { text: `${it.qty} × ${it.name}` }), h('div', { class: 'muted', text: it.type === 'esim' ? 'eSIM' : 'SIM física' })), h('div', { text: money(it.unitPrice * it.qty) }));
+      const el = h('div', { class: 'cart-item' }, h('div', {}, h('strong', { text: `${it.qty} × ${it.name}` }), h('div', { class: 'muted', text: App.typeLabel(it.type) })), h('div', { text: money(it.unitPrice * it.qty) }));
       list.append(el);
       if (it.codes && it.codes.length) {
         const cbox = h('div', { style: { gridColumn: '1 / -1' } });

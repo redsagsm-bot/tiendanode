@@ -147,7 +147,7 @@
     const tbody = h('tbody');
     for (const p of productos) tbody.append(h('tr', {},
       h('td', {}, p.image ? h('img', { src: p.image, alt: '', style: { width: '48px', height: '36px', objectFit: 'cover', borderRadius: '6px' } }) : '—'),
-      h('td', {}, h('strong', { text: p.name }), h('div', { class: 'muted', text: p.carrier + ' · ' + (p.type === 'esim' ? 'eSIM' : 'SIM física') })),
+      h('td', {}, h('strong', { text: p.name }), h('div', { class: 'muted', text: p.carrier + ' · ' + (p.type === 'esim' ? 'eSIM' : p.type === 'electronicos' ? 'Electrónicos' : 'SIM física') })),
       h('td', { text: money(p.price) }), h('td', { text: String(p.stock) }),
       h('td', { text: (p.active ? 'Activo' : 'Oculto') + (p.featured ? ' · Destacado' : '') }),
       h('td', {}, h('button', { class: 'btn sm secondary', type: 'button', onclick: () => productDialog(p), text: 'Editar' }), ' ',
@@ -157,7 +157,7 @@
         }, text: 'Eliminar' }))));
     clear(main).append(h('div', { class: 'toolbar' }, h('h1', { style: { margin: 0, flex: 1 }, text: 'Productos' }), h('button', { class: 'btn', type: 'button', onclick: () => productDialog(null), text: '+ Nuevo producto' })),
       h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Imagen', 'Producto', 'Precio', 'Stock', 'Estado', ''].map((t) => h('th', { text: t })))), tbody)),
-      h('p', { class: 'muted', text: 'El stock de eSIM es la cantidad de códigos disponibles (se administra en Inventario eSIM). El stock de SIM física se edita aquí.' }));
+      h('p', { class: 'muted', text: 'El stock de eSIM es la cantidad de códigos disponibles (se administra en Inventario eSIM). El stock de SIM física y Electrónicos se edita aquí.' }));
   };
   function dialog(title, body, actions) {
     const d = h('dialog', {}, h('div', { class: 'dlg-body' }, h('h2', { text: title }), body), h('div', { class: 'dlg-foot' }, actions, h('button', { class: 'btn secondary', type: 'button', onclick: () => d.close(), text: 'Cerrar' })));
@@ -168,11 +168,11 @@
     const f = {
       name: h('input', { value: p ? p.name : '', maxlength: 120, required: true }),
       carrier: h('input', { value: p ? p.carrier : 'Telcel', maxlength: 40, list: 'carriers', required: true }),
-      type: h('select', {}, h('option', { value: 'esim', text: 'eSIM' }), h('option', { value: 'sim', text: 'SIM física (chip)' })),
+      type: h('select', {}, h('option', { value: 'esim', text: 'eSIM' }), h('option', { value: 'sim', text: 'SIM física (chip)' }), h('option', { value: 'electronicos', text: 'Electrónicos' })),
       price: h('input', { type: 'number', step: '0.01', min: '0', value: p ? (p.price / 100).toFixed(2) : '', required: true }),
       dataAmount: h('input', { value: p ? p.dataAmount || '' : '', maxlength: 60, placeholder: 'Ej. 10 GB' }),
       validityDays: h('input', { type: 'number', min: '0', value: p ? p.validityDays || 0 : 30 }),
-      stock: h('input', { type: 'number', min: '0', value: p && p.type === 'sim' ? p.stock : 0 }),
+      stock: h('input', { type: 'number', min: '0', value: p && p.type !== 'esim' ? p.stock : 0 }),
       description: h('textarea', { rows: 4, maxlength: 3000, value: p ? p.description || '' : '' }),
       codes: h('textarea', { rows: 5, placeholder: 'Un código por línea. Opcional: código,LPA' }),
       active: h('input', { type: 'checkbox', checked: p ? p.active : true }), featured: h('input', { type: 'checkbox', checked: p ? p.featured : false }),
@@ -184,7 +184,7 @@
     const m = msgBox();
     const stockField = field('Stock (piezas físicas)', f.stock);
     const codesField = field('Inventario eSIM: agregar códigos (opcional)', f.codes);
-    const syncType = () => { stockField.classList.toggle('hidden', f.type.value !== 'sim'); codesField.classList.toggle('hidden', f.type.value !== 'esim'); };
+    const syncType = () => { stockField.classList.toggle('hidden', !['sim', 'electronicos'].includes(f.type.value)); codesField.classList.toggle('hidden', f.type.value !== 'esim'); };
     f.type.addEventListener('change', syncType); syncType();
     f.file.addEventListener('change', async () => {
       if (!f.file.files[0]) return;
@@ -307,7 +307,7 @@
       o.tracking ? h('p', { text: `Guía: ${o.tracking} ${o.shipCarrier}` }) : null,
       o.paypalOrderId ? h('p', { class: 'muted', text: `PayPal orden ${o.paypalOrderId}${o.paypalCaptureId ? ' · captura ' + o.paypalCaptureId : ''}` }) : null,
       h('div', { class: 'table-wrap' }, h('table', {}, h('tbody', {}, o.items.map((i) => h('tr', {}, h('td', { text: `${i.qty} × ${i.name}` }), h('td', { text: money(i.unitPrice * i.qty) }),
-        h('td', { text: i.type === 'esim' ? (i.codes.length ? i.codes.map((c) => c.code).join(', ') : 'Sin códigos asignados') : 'SIM física' })))),
+        h('td', { text: i.type === 'esim' ? (i.codes.length ? i.codes.map((c) => c.code).join(', ') : 'Sin códigos asignados') : (i.type === 'electronicos' ? 'Electrónicos' : 'SIM física') })))),
         h('tr', {}, h('td', { text: 'Envío' }), h('td', { text: money(o.shipping) }), h('td')), h('tr', {}, h('th', { text: 'Total' }), h('th', { text: money(o.total) }), h('th')))),
       h('p', { class: 'mt' }, 'Enlace privado del cliente: ', h('input', { readonly: true, value: enlace, onfocus: (e) => e.target.select() })),
       o.refundNote ? h('p', { class: 'notice', text: 'Reembolso: ' + o.refundNote }) : null,
