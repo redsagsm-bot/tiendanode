@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     clear(box).append(h('div', { class: 'product-detail' },
       thumb(p, { loading: 'eager' }),
       h('div', {},
-        h('div', { class: 'card-meta' }, h('span', { class: 'tag ' + p.type, text: p.type === 'esim' ? 'eSIM (digital)' : 'SIM física (chip)' }), ' ', h('span', { class: 'tag', text: p.carrier })),
+        h('div', { class: 'card-meta' }, h('span', { class: 'tag ' + p.type, text: App.typeLabel(p.type, true) }), ' ', h('span', { class: 'tag', text: p.carrier })),
         h('h1', { text: p.name }),
         h('p', { class: 'price', style: { fontSize: '1.8rem', fontWeight: '800', margin: '0' }, text: money(p.price) }),
         h('p', { class: 'muted', text: 'Precio con IVA incluido.' }),

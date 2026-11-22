@@ -66,7 +66,7 @@
       h('a', { href: 'producto.html?id=' + p.id, 'aria-label': p.name, style: { textDecoration: 'none' } }, thumb(p)),
       h('div', { class: 'body' },
         h('div', { class: 'meta' },
-          h('span', { class: 'tag ' + p.type, text: p.type === 'esim' ? 'eSIM' : 'SIM física' }),
+          h('span', { class: 'tag ' + p.type, text: typeLabel(p.type) }),
           p.validityDays ? h('span', { class: 'tag', text: p.validityDays + ' días' }) : null,
           /\[EJEMPLO\]/.test(p.name) ? h('span', { class: 'tag example', text: 'Ejemplo' }) : null,
           out ? h('span', { class: 'tag out', text: 'Agotado' }) : null),
@@ -131,7 +131,9 @@
       h('img', { src: '/img/pago-seguro.svg', alt: 'Pago seguro', width: 150, height: 40, loading: 'lazy' }));
     if (copy) footer.insertBefore(badges, copy); else footer.append(badges);
   }
-  window.App = { h, money, clear, $, api, Cart, config, productCard, thumb, toast, notice, waLink, carrierColor };
+  const typeLabel = (t, long) => (t === 'esim' ? (long ? 'eSIM (digital)' : 'eSIM') : t === 'electronicos' ? 'Electrónicos' : (long ? 'SIM física (chip)' : 'SIM física'));
+  const isPhysical = (t) => t === 'sim' || t === 'electronicos';
+  window.App = { typeLabel, isPhysical, h, money, clear, $, api, Cart, config, productCard, thumb, toast, notice, waLink, carrierColor };
 })();
 // Carga del SDK de PayPal bajo demanda (client-id viene de /api/config).
 App.loadPayPal = (clientId) => new Promise((resolve, reject) => {

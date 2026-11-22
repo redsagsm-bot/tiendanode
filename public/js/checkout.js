@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     clear(summary).append(h('p', { text: 'Tu carrito está vacío.' }), h('a', { class: 'btn', href: 'productos.html', text: 'Ver productos' }));
     form.classList.add('hidden'); return;
   }
-  const needsShip = items.some((i) => products.get(i.id).type === 'sim');
+  const needsShip = items.some((i) => App.isPhysical(products.get(i.id).type));
   const subtotal = items.reduce((s, i) => s + products.get(i.id).price * i.qty, 0);
   const ship = needsShip ? cfg.shippingCost || 0 : 0;
   clear(summary).append(

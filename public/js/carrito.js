@@ -18,11 +18,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     let subtotal = 0, sim = false, problem = false;
     for (const it of items) {
       const p = products.get(it.id);
-      subtotal += p.price * it.qty; if (p.type === 'sim') sim = true;
+      subtotal += p.price * it.qty; if (App.isPhysical(p.type)) sim = true;
       const over = it.qty > p.stock; if (over) problem = true;
       box.append(h('div', { class: 'cart-item' },
         h('div', {}, h('a', { href: 'producto.html?id=' + p.id, text: p.name }),
-          h('div', { class: 'muted', text: (p.type === 'esim' ? 'eSIM' : 'SIM física') + ' · ' + money(p.price) + ' c/u' }),
+          h('div', { class: 'muted', text: App.typeLabel(p.type) + ' · ' + money(p.price) + ' c/u' }),
           over ? h('div', { class: 'tag out', text: p.stock < 1 ? 'Agotado' : 'Solo hay ' + p.stock + ' disponibles' }) : null),
         h('div', { style: { textAlign: 'right' } },
           h('strong', { text: money(p.price * it.qty) }),

@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY, username TEXT UNIQUE N
 CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
   csrf TEXT NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY, name TEXT NOT NULL, carrier TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('esim','sim')), price INTEGER NOT NULL CHECK(price >= 0),
+  type TEXT NOT NULL CHECK(type IN ('esim','sim','electronicos')), price INTEGER NOT NULL CHECK(price >= 0),
   description TEXT NOT NULL DEFAULT '', data_amount TEXT NOT NULL DEFAULT '', validity_days INTEGER NOT NULL DEFAULT 0,
   image TEXT NOT NULL DEFAULT '', stock INTEGER NOT NULL DEFAULT 0 CHECK(stock >= 0), active INTEGER NOT NULL DEFAULT 1,
   featured INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
@@ -91,10 +91,36 @@ CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, name TEXT NOT NULL, 
 `);
 if (!db.prepare('PRAGMA table_info(orders)').all().some((c) => c.name === 'stripe_session_id')) db.exec('ALTER TABLE orders ADD COLUMN stripe_session_id TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_stripe ON orders(stripe_session_id)');
+// Migración: el tipo 'electronicos' no cabía en el CHECK de products. SQLite no permite alterarlo, se reconstruye la tabla.
+{
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'products'").get();
+  if (row && !row.sql.includes("'electronicos'")) {
+    const newSql = row.sql.replace("CHECK(type IN ('esim','sim'))", "CHECK(type IN ('esim','sim','electronicos'))").replace(/^CREATE TABLE\s+("?)products("?)/i, 'CREATE TABLE products_new');
+    if (!newSql.includes("'electronicos'") || !newSql.startsWith('CREATE TABLE products_new')) throw new Error('Migración de products: esquema inesperado');
+    try { fs.copyFileSync(path.join(DATA_DIR, 'store.db'), path.join(DATA_DIR, 'store.db.antes-electronicos.bak')); } catch (e) { console.error('[migracion] sin respaldo:', e.message); }
+    db.exec('PRAGMA foreign_keys=OFF');
+    try {
+      db.exec('BEGIN IMMEDIATE');
+      db.exec('DROP TABLE IF EXISTS products_new');
+      db.exec(newSql);
+      db.exec('INSERT INTO products_new SELECT * FROM products');
+      db.exec('DROP TABLE products');
+      db.exec('ALTER TABLE products_new RENAME TO products');
+      const bad = db.prepare('PRAGMA foreign_key_check').all();
+      if (bad.length) throw new Error('Migración de products: ' + bad.length + ' referencias rotas');
+      db.exec('COMMIT');
+      console.log('[migracion] products ahora acepta el tipo electronicos');
+    } catch (e) { try { db.exec('ROLLBACK'); } catch { /* */ } throw e; }
+    finally { db.exec('PRAGMA foreign_keys=ON'); }
+  }
+}
 
 const nowIso = () => new Date().toISOString();
 class HttpError extends Error { constructor(status, msg, extra) { super(msg); this.status = status; this.extra = extra; } }
 const fail = (s, m, e) => { throw new HttpError(s, m, e); };
+// Productos físicos: llevan stock propio, dirección y envío (a diferencia de la eSIM, que se entrega con código).
+const isPhysical = (t) => t === 'sim' || t === 'electronicos';
+const TYPE_LABEL = { esim: 'eSIM', sim: 'SIM física', electronicos: 'Electrónicos' };
 let inTx = false;
 function tx(fn) {
   if (inTx) return fn();
@@ -411,7 +437,7 @@ function listProducts(q, admin = false) {
   const where = ['deleted = 0'], args = [];
   if (!admin) where.push('active = 1');
   if (q.carrier) { where.push('carrier = ?'); args.push(String(q.carrier).slice(0, 40)); }
-  if (q.type === 'esim' || q.type === 'sim') { where.push('type = ?'); args.push(q.type); }
+  if (q.type === 'esim' || isPhysical(q.type)) { where.push('type = ?'); args.push(q.type); }
   if (q.featured === '1') where.push('featured = 1');
   if (q.q) {
     const like = likeArg(q.q);
@@ -426,7 +452,7 @@ function productInput(b, partial = false) {
   const has = (k) => !partial || b[k] !== undefined;
   if (has('name')) out.name = str(b.name, { min: 2, max: 120, name: 'Nombre' });
   if (has('carrier')) out.carrier = str(b.carrier, { min: 2, max: 40, name: 'Compañía' });
-  if (has('type')) { if (!['esim', 'sim'].includes(b.type)) fail(400, 'Tipo debe ser esim o sim'); out.type = b.type; }
+  if (has('type')) { if (!['esim', 'sim', 'electronicos'].includes(b.type)) fail(400, 'Tipo debe ser esim, sim o electronicos'); out.type = b.type; }
   if (has('price')) out.price = pesosToCents(b.price);
   if (has('description')) out.description = str(b.description, { max: 3000, name: 'Descripción', multiline: true });
   if (has('dataAmount')) out.data_amount = str(b.dataAmount, { max: 60, name: 'Datos' });
@@ -453,7 +479,7 @@ const itemsStmt = db.prepare('SELECT * FROM order_items WHERE order_id = ? ORDER
 
 function releaseReservation(o) {
   if (!o.reserved) return;
-  for (const it of itemsStmt.all(o.id)) if (it.type === 'sim') db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(it.qty, it.product_id);
+  for (const it of itemsStmt.all(o.id)) if (isPhysical(it.type)) db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(it.qty, it.product_id);
   db.prepare("UPDATE esim_codes SET status = 'disponible', reserved_order_id = NULL WHERE reserved_order_id = ? AND status = 'reservado'").run(o.id);
   db.prepare('UPDATE orders SET reserved = 0 WHERE id = ?').run(o.id);
 }
@@ -505,7 +531,7 @@ function createOrderTx(b) {
       if (!p) fail(400, 'Un producto del carrito ya no está disponible');
       products.push({ p, qty });
     }
-    const needsShipping = products.some((x) => x.p.type === 'sim');
+    const needsShipping = products.some((x) => isPhysical(x.p.type));
     let address = null;
     if (needsShipping) {
       const a = b.address || {};
@@ -537,7 +563,7 @@ function createOrderTx(b) {
     for (const { p, qty } of products) {
       db.prepare('INSERT INTO order_items(order_id, product_id, name, carrier, type, qty, unit_price) VALUES(?,?,?,?,?,?,?)')
         .run(orderId, p.id, p.name, p.carrier, p.type, qty, p.price);
-      if (p.type === 'sim') {
+      if (isPhysical(p.type)) {
         const r = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?').run(qty, p.id, qty);
         if (r.changes !== 1) fail(409, `Sin existencias suficientes de "${p.name}"`);
       } else {
@@ -559,7 +585,7 @@ function confirmPaid(orderId, { captureId = null, by = 'sistema' } = {}) {
     const items = itemsStmt.all(o.id);
     const problems = [];
     for (const it of items) {
-      if (it.type === 'sim') {
+      if (isPhysical(it.type)) {
         if (!o.reserved) {
           const r = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?').run(it.qty, it.product_id, it.qty);
           if (r.changes !== 1) problems.push(`Sin stock físico para "${it.name}"`);
@@ -578,7 +604,7 @@ function confirmPaid(orderId, { captureId = null, by = 'sistema' } = {}) {
       }
     }
     db.prepare("UPDATE esim_codes SET status = 'disponible', reserved_order_id = NULL WHERE reserved_order_id = ? AND status = 'reservado'").run(o.id);
-    const hasSim = items.some((i) => i.type === 'sim');
+    const hasSim = items.some((i) => isPhysical(i.type));
     const status = hasSim || problems.length ? 'pagado' : 'entregado';
     const note = [o.notes, problems.length ? `ATENCIÓN (${nowIso()}): ${problems.join('; ')}` : '', `Pago confirmado por ${by} (${nowIso()})`]
       .filter(Boolean).join('\n');
@@ -612,7 +638,7 @@ function fillMissingCodes(orderId) {
         if (r.changes === 1) added++; else { missing++; break; }
       }
     }
-    if (added && !missing && o.status === 'pagado' && !itemsStmt.all(o.id).some((i) => i.type === 'sim')) db.prepare("UPDATE orders SET status = 'entregado' WHERE id = ?").run(o.id);
+    if (added && !missing && o.status === 'pagado' && !itemsStmt.all(o.id).some((i) => isPhysical(i.type))) db.prepare("UPDATE orders SET status = 'entregado' WHERE id = ?").run(o.id);
     return added;
   });
 }
@@ -640,7 +666,7 @@ function orderPublic(o, reveal) {
   return {
     number: o.number, status: o.status, statusLabel: STATUS_LABEL[o.status] || o.status, paymentMethod: o.payment_method,
     createdAt: o.created_at, paidAt: o.paid_at, subtotal: o.subtotal, shipping: o.shipping, total: o.total, name: o.name,
-    tracking: o.tracking || '', shipCarrier: o.ship_carrier || '', items, needsShipping: items.some((i) => i.type === 'sim'),
+    tracking: o.tracking || '', shipCarrier: o.ship_carrier || '', items, needsShipping: items.some((i) => isPhysical(i.type)),
     expiresAt: o.status === 'pendiente_pago' && o.expires_at ? new Date(o.expires_at).toISOString() : null,
     bankInfo: o.payment_method === 'manual' && o.status === 'pendiente_pago' ? cfg.bankInfo : '',
     whatsapp: cfg.whatsapp,
@@ -1322,7 +1348,7 @@ function productCardHtml(p) {
   const href = 'producto.html?id=' + p.id;
   const img = p.image ? `<img src="${escHtml(p.image)}" alt="${escHtml(p.name)}"${dimAttrs(p)} loading="lazy" decoding="async">` : '';
   const tags = [
-    `<span class="tag ${p.type === 'esim' ? 'esim' : 'sim'}">${p.type === 'esim' ? 'eSIM' : 'SIM física'}</span>`,
+    `<span class="tag ${p.type === 'esim' ? 'esim' : 'sim'}">${TYPE_LABEL[p.type] || 'SIM física'}</span>`,
     p.validityDays ? `<span class="tag">${escHtml(String(p.validityDays))} días</span>` : '',
     /\[EJEMPLO\]/.test(p.name) ? '<span class="tag example">Ejemplo</span>' : '',
     p.stock < 1 ? '<span class="tag out">Agotado</span>' : '',
@@ -1331,7 +1357,7 @@ function productCardHtml(p) {
   return `<article class="card"><a href="${href}"><div class="thumb" style="--c:${color}"><span>${caption}</span>${img}</div></a><div class="body"><div class="meta">${tags}</div><h3><a href="${href}">${escHtml(p.name)}</a></h3><div class="price">${escHtml(formatMxn(p.price))}</div><div class="actions"><a class="btn sm secondary" href="${href}">Ver detalle</a></div></div></article>`;
 }
 function productDetailHtml(p) {
-  const kind = p.type === 'esim' ? 'eSIM (digital)' : 'SIM física (chip)';
+  const kind = p.type === 'esim' ? 'eSIM (digital)' : p.type === 'electronicos' ? 'Electrónicos' : 'SIM física (chip)';
   const bits = [];
   if (p.dataAmount) bits.push(`<li>Datos: ${escHtml(p.dataAmount)}</li>`);
   if (p.validityDays) bits.push(`<li>Vigencia: ${escHtml(String(p.validityDays))} días</li>`);
@@ -1394,7 +1420,7 @@ function productJsonLd(p, storeName, url) {
     description: String(p.description || `${p.name}. ${p.carrier}.`).slice(0, 5000),
     sku: String(p.id),
     brand: { '@type': 'Brand', name: p.carrier },
-    category: p.type === 'esim' ? 'eSIM' : 'SIM',
+    category: p.type === 'esim' ? 'eSIM' : p.type === 'electronicos' ? 'Electrónicos' : 'SIM',
     offers: {
       '@type': 'Offer',
       url,
