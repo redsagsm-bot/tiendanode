@@ -80,3 +80,10 @@ fieldset{border:1px solid var(--border);border-radius:var(--radius);padding:1rem
 .toast{position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);background:#0f172a;color:#fff;padding:.75rem 1.1rem;border-radius:12px;z-index:100;box-shadow:var(--shadow)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 .pay-badges{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:1.2rem;margin-bottom:.4rem}.pay-badges img{height:36px;width:auto;border-radius:8px;display:block}
+.reviews{background:#fff}
+.reviews-grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.review-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;box-shadow:var(--shadow)}
+.review-card .stars{color:#f59e0b;font-size:1.1rem;letter-spacing:1px;margin-bottom:.4rem}
+.review-card p{margin:.4rem 0 .8rem;font-style:italic}
+.review-card strong{display:block;font-size:.95rem}
+.review-card span{font-size:.85rem}
