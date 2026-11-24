@@ -338,6 +338,7 @@
     const m = msgBox();
     const f = { storeName: h('input', { value: s.storeName, maxlength: 80 }), contactEmail: h('input', { type: 'email', value: s.contactEmail, maxlength: 160 }), whatsapp: h('input', { value: s.whatsapp, maxlength: 20, placeholder: '5215512345678' }),
       shippingCost: h('input', { type: 'number', step: '0.01', min: '0', value: (s.shippingCost / 100).toFixed(2) }), bankInfo: h('textarea', { rows: 4, maxlength: 2000, value: s.bankInfo }),
+      emailIntro: h('textarea', { rows: 3, maxlength: 2000, value: s.email.intro }), emailInstructions: h('textarea', { rows: 4, maxlength: 2000, value: s.email.instructions }), emailSignature: h('textarea', { rows: 2, maxlength: 2000, value: s.email.signature }),
       ppMode: h('select', {}, h('option', { value: 'sandbox', text: 'Sandbox (pruebas)' }), h('option', { value: 'live', text: 'Live (producción)' })), ppClient: h('input', { value: s.paypal.clientId, maxlength: 200, autocomplete: 'off' }),
       ppSecret: h('input', { type: 'password', maxlength: 200, autocomplete: 'new-password', placeholder: s.paypal.secretSet ? 'Guardado: ' + s.paypal.secretMasked + ' (deja vacío para conservar)' : 'Secret de PayPal' }) };
     let logo = s.logo || '';
@@ -387,7 +388,7 @@
             h('div', { class: 'inline' }, s.paypal.secretSet && !s.paypal.fromEnv ? h('button', { class: 'btn sm secondary', type: 'button', onclick: async () => { if (!confirm('¿Borrar el Secret de PayPal? Se desactivará el pago con PayPal.')) return; try { await api('/api/admin/ajustes', 'PUT', { paypal: { clearSecret: true } }); go('ajustes'); } catch (e) { show(m, e.message); } }, text: 'Borrar Secret' }) : null,
               h('button', { class: 'btn sm secondary', type: 'button', onclick: async () => { try { const r = await api('/api/admin/paypal-test', 'POST'); show(m, 'Conexión con PayPal correcta' + (r.mode ? ' (' + r.mode + ')' : ''), 'ok'); } catch (e) { show(m, e.message); } }, text: 'Probar conexión PayPal' }))),
           m, h('button', { class: 'btn mt', type: 'button', onclick: async () => {
-            const body = { logo, banners, storeName: f.storeName.value.trim(), contactEmail: f.contactEmail.value.trim(), whatsapp: f.whatsapp.value.trim(), shippingCost: f.shippingCost.value, bankInfo: f.bankInfo.value };
+            const body = { logo, banners, storeName: f.storeName.value.trim(), contactEmail: f.contactEmail.value.trim(), whatsapp: f.whatsapp.value.trim(), shippingCost: f.shippingCost.value, bankInfo: f.bankInfo.value, emailIntro: f.emailIntro.value, emailInstructions: f.emailInstructions.value, emailSignature: f.emailSignature.value };
             if (!s.paypal.fromEnv) { body.paypal = { mode: f.ppMode.value, clientId: f.ppClient.value.trim() }; if (f.ppSecret.value) body.paypal.secret = f.ppSecret.value.trim(); }
             try { await api('/api/admin/ajustes', 'PUT', body); toast('Ajustes guardados'); go('ajustes'); } catch (e) { show(m, e.message); }
           }, text: 'Guardar ajustes' })),
@@ -395,6 +396,10 @@
           h('div', { class: 'panel' }, h('h2', { text: 'Correo (SMTP)' }),
             h('p', { class: s.smtp.configured ? 'notice ok' : 'notice', text: s.smtp.configured ? `Configurado: ${s.smtp.host} (remitente ${s.smtp.from})` : 'No configurado (opcional). Define SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS y SMTP_FROM en las variables de entorno.' }),
             h('div', { class: 'inline' }, testTo, h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await api('/api/admin/smtp-test', 'POST', { to: testTo.value.trim() }); show(tm, 'Correo de prueba enviado', 'ok'); } catch (e) { show(tm, e.message); } }, text: 'Enviar prueba' })), tm),
+          h('div', { class: 'panel mt' }, h('h2', { text: 'Correo al cliente (pedido)' }),
+            h('p', { class: 'muted', text: 'Puedes usar {nombre}, {tienda} y {pedido}. Entre el texto inicial y las instrucciones el correo incluye siempre el pedido, los códigos y el enlace. Pulsa "Guardar ajustes" para aplicar.' }),
+            field('Texto inicial', f.emailIntro), field('Instrucciones (puede quedar vacío)', f.emailInstructions), field('Firma', f.emailSignature),
+            h('button', { class: 'btn sm secondary', type: 'button', onclick: () => { f.emailIntro.value = s.emailDefaults.intro; f.emailInstructions.value = s.emailDefaults.instructions; f.emailSignature.value = s.emailDefaults.signature; show(m, 'Texto original restaurado: pulsa "Guardar ajustes"', 'info'); }, text: 'Restaurar texto original' })),
           h('div', { class: 'panel mt' }, h('h2', { text: 'Avisos por Telegram' }),
             h('p', { class: s.telegram.configured ? 'notice ok' : 'notice', text: s.telegram.configured ? 'Configurado: recibirás avisos de pedidos nuevos, pagos confirmados y stock bajo.' : 'No configurado (opcional). Define TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en las variables de entorno.' }),
             h('div', { class: 'inline' }, h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await api('/api/admin/telegram-test', 'POST'); show(tgm, 'Mensaje de prueba enviado a Telegram', 'ok'); } catch (e) { show(tgm, e.message); } }, text: 'Enviar prueba' })), tgm),

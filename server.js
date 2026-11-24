@@ -136,6 +136,15 @@ const stGet = db.prepare('SELECT value FROM settings WHERE key = ?');
 const stSet = db.prepare('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
 function setting(k, d = '') { const r = stGet.get(k); return r ? r.value : d; }
 function setSetting(k, v) { stSet.run(k, String(v)); }
+const DEFAULT_EMAIL = {
+  intro: 'Hola {nombre},\n\nGracias por tu compra en {tienda}.',
+  instructions: 'Para instalar tu eSIM: Ajustes > Datos móviles / Celular > Agregar eSIM > Usar código QR o ingresar los datos manualmente.\nImportante: la eSIM normalmente solo puede instalarse una vez. Guarda este correo.',
+  signature: '{tienda}',
+};
+function emailTexts() {
+  return { intro: setting('email_intro', DEFAULT_EMAIL.intro), instructions: setting('email_instructions', DEFAULT_EMAIL.instructions), signature: setting('email_signature', DEFAULT_EMAIL.signature) };
+}
+function fillTpl(t, vars) { return String(t).replace(/\{(nombre|tienda|pedido)\}/g, (_, k) => vars[k]); }
 const DEFAULT_BANK = 'Realiza tu transferencia SPEI y envíanos el comprobante por WhatsApp con tu número de pedido. (Configura estos datos en Ajustes.)';
 const BANNER_RE = /^[a-f0-9]{32}\.(png|jpg|webp|gif)$/, MAX_BANNERS = 6;
 function bannerList() {
@@ -702,16 +711,17 @@ async function sendDeliveryEmail(orderId, force = false) {
   if (o.email_sent_at && !force) return { sent: false, reason: 'Ya enviado' };
   const cfg = storeConfig();
   const pub = orderPublic(o, true);
-  const lines = [`Hola ${o.name},`, '', `Gracias por tu compra en ${cfg.storeName}.`, `Pedido: ${o.number}`, `Estado: ${pub.statusLabel}`,
+  const tx = emailTexts(), vars = { nombre: o.name, tienda: cfg.storeName, pedido: o.number };
+  const lines = [fillTpl(tx.intro, vars), '', `Pedido: ${o.number}`, `Estado: ${pub.statusLabel}`,
     `Total: $${(o.total / 100).toFixed(2)} MXN`, ''];
   for (const it of pub.items) {
     lines.push(`• ${it.qty} x ${it.name}`);
     for (const c of it.codes) { if (c.manual) { lines.push('   Tu código de activación eSIM te llegará por correo en breve.'); continue; } lines.push(`   Código de activación: ${c.code}`); if (c.lpa) lines.push(`   LPA: ${c.lpa}`); }
   }
   if (pub.tracking) lines.push('', `Guía de envío: ${pub.tracking} ${pub.shipCarrier}`);
-  lines.push('', `Ver tu pedido (y el código QR si aplica): ${statusLink(o)}`, '',
-    'Para instalar tu eSIM: Ajustes > Datos móviles / Celular > Agregar eSIM > Usar código QR o ingresar los datos manualmente.',
-    'Importante: la eSIM normalmente solo puede instalarse una vez. Guarda este correo.', '', cfg.storeName);
+  lines.push('', `Ver tu pedido (y el código QR si aplica): ${statusLink(o)}`, '');
+  if (tx.instructions.trim()) lines.push(fillTpl(tx.instructions, vars), '');
+  lines.push(fillTpl(tx.signature, vars));
   await sendMail(smtp, { to: o.email, subject: `${cfg.storeName} - Pedido ${o.number} (${pub.statusLabel})`, text: lines.join('\n') });
   db.prepare('UPDATE orders SET email_sent_at = ? WHERE id = ?').run(nowIso(), o.id);
   return { sent: true };
@@ -1175,7 +1185,7 @@ admin('DELETE', '/api/admin/mensajes/:id', ({ params }) => { db.prepare('DELETE 
 // ---- Admin: settings
 admin('GET', '/api/admin/ajustes', () => {
   const pp = paypalConfig(), smtp = smtpConfig();
-  return { ...storeConfig(), paypal: { mode: pp.mode, clientId: pp.clientId || '', secretSet: !!pp.secret, secretMasked: pp.secret ? '••••••••' + pp.secret.slice(-4) : '',
+  return { ...storeConfig(), email: emailTexts(), emailDefaults: DEFAULT_EMAIL, paypal: { mode: pp.mode, clientId: pp.clientId || '', secretSet: !!pp.secret, secretMasked: pp.secret ? '••••••••' + pp.secret.slice(-4) : '',
     fromEnv: pp.fromEnv, mock: PAYPAL_MOCK }, smtp: { configured: !!smtp, host: smtp ? smtp.host : '', from: smtp ? smtp.from : '' }, telegram: { configured: telegramEnabled() } };
 });
 admin('PUT', '/api/admin/ajustes', ({ body }) => {
@@ -1192,6 +1202,8 @@ admin('PUT', '/api/admin/ajustes', ({ body }) => {
   if (body.whatsapp !== undefined) sets.push(['whatsapp', str(body.whatsapp, { max: 20, name: 'WhatsApp (solo dígitos con lada, ej. 5215512345678)', re: /^\+?[0-9]{10,15}$/ }).replace('+', '')]);
   if (body.shippingCost !== undefined) sets.push(['shipping_cost', pesosToCents(body.shippingCost, 'Costo de envío')]);
   if (body.bankInfo !== undefined) sets.push(['bank_info', str(body.bankInfo, { max: 2000, name: 'Instrucciones de pago', multiline: true })]);
+  for (const [k, col, nm, min] of [['emailIntro', 'email_intro', 'Texto inicial del correo', 1], ['emailInstructions', 'email_instructions', 'Instrucciones del correo', 0], ['emailSignature', 'email_signature', 'Firma del correo', 1]])
+    if (body[k] !== undefined) sets.push([col, str(body[k], { min, max: 2000, name: nm, multiline: true })]);
   if (body.paypal && typeof body.paypal === 'object') {
     const b = body.paypal;
     const touches = b.clientId !== undefined || b.secret || b.clearSecret || b.mode !== undefined;
