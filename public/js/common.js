@@ -90,6 +90,14 @@
   function layout() {
     const toggle = $('.nav-toggle'), menu = $('#menu');
     if (toggle && menu) toggle.addEventListener('click', () => { const o = menu.classList.toggle('open'); toggle.setAttribute('aria-expanded', String(o)); });
+    // Carrito siempre visible en móviles (fuera del menú hamburguesa)
+    const nav = document.querySelector('.nav');
+    if (nav && !document.querySelector('.cart-mobile')) {
+      const cartLink = h('a', { class: 'cart-mobile', href: 'carrito.html', 'aria-label': 'Carrito' },
+        h('span', { text: '🛒' }),
+        h('span', { class: 'badge', 'data-cart-count': '' }, '0'));
+      nav.insertBefore(cartLink, toggle);
+    }
     const path = location.pathname.replace(/\/+$/, '') || '/';
     const here = (path === '/' || path.endsWith('/index.html')) ? '/' : path.split('/').pop();
     document.querySelectorAll('#menu a').forEach((a) => {
