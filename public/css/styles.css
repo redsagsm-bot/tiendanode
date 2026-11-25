@@ -89,3 +89,9 @@ fieldset{border:1px solid var(--border);border-radius:var(--radius);padding:1rem
 .review-card p{margin:.4rem 0 .8rem;font-style:italic}
 .review-card strong{display:block;font-size:.95rem}
 .review-card span{font-size:.85rem}
+.secure{background:#f0f7ff}
+.secure-grid{display:grid;gap:1.25rem;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:1rem}
+.secure-item{text-align:center;background:#fff;border-radius:var(--radius);padding:1.4rem 1rem;border:1px solid var(--border);box-shadow:var(--shadow)}
+.secure-icon{font-size:2.2rem;margin-bottom:.4rem}
+.secure-item strong{display:block;font-size:1.05rem;margin-bottom:.2rem}
+.secure-item p{margin:0;font-size:.9rem}
