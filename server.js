@@ -1011,8 +1011,6 @@ route('GET', '/api/cuenta/me', ({ req }) => {
   return { user: { id: s.customer_id, email: s.email, name: s.name } };
 });
 
-if (PAYPAL_MOCK) {
-
 route('POST', '/api/cuenta/recuperar', async ({ body }) => {
   const email = str(body.email, { min: 5, max: 160, name: 'Correo', re: EMAIL_RE }).toLowerCase();
   const c = db.prepare('SELECT * FROM customers WHERE email = ? AND pass_hash IS NOT NULL').get(email);
@@ -1044,7 +1042,9 @@ route('POST', '/api/cuenta/restablecer', ({ body }) => {
   return { ok: true };
 });
 
-  // Rutas SOLO de pruebas (requieren NODE_ENV=test y PAYPAL_MOCK=1).
+// Rutas SOLO de pruebas. No agregar rutas normales dentro de este bloque: solo se registran con PAYPAL_MOCK=1.
+if (PAYPAL_MOCK) {
+  // (requieren NODE_ENV=test y PAYPAL_MOCK=1)
   route('POST', '/api/test/paypal-tamper', ({ body }) => { if (mockClient) mockClient._tamper(String(body.id), String(body.value)); return { ok: true }; });
 }
 
