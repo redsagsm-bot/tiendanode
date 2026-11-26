@@ -1022,7 +1022,7 @@ route('POST', '/api/cuenta/recuperar', async ({ body }) => {
   db.prepare('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('reset_' + c.id, JSON.stringify({ token, expires }));
   const smtp = smtpConfig();
   if (smtp) {
-    const link = (process.env.PUBLIC_URL || 'https://esimgo.mx') + '/cuenta.html?reset=' + token + '&id=' + c.id;
+    const link = (process.env.PUBLIC_URL || 'https://esimgo.mx') + '/restablecer.html?reset=' + token + '&id=' + c.id;
     try {
       await sendMail(smtp, { to: email, subject: 'Restablecer contraseña - ' + storeConfig().storeName, text: `Hola,\n\nPara restablecer tu contraseña visita este enlace (válido por 1 hora):\n${link}\n\nSi no solicitaste esto, ignora este mensaje.` });
     } catch (e) { console.error('[reset]', e.message); }
