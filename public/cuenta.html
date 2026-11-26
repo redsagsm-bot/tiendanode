@@ -34,7 +34,8 @@
         <div class="field"><label>Correo</label><input type="email" id="login-email" required autocomplete="email"></div>
         <div class="field"><label>Contraseña</label><input type="password" id="login-pass" required autocomplete="current-password"></div>
         <button class="btn" type="submit">Entrar</button>
-        <p class="muted mt"><a href="#" id="show-register">¿No tienes cuenta? Regístrate</a></p>
+        <p class="muted mt"><a href="#" id="show-reset">¿Olvidaste tu contraseña?</a></p>
+        <p class="muted"><a href="#" id="show-register">¿No tienes cuenta? Regístrate</a></p>
       </form>
     </div>
     <div id="register-box" class="panel hidden">
@@ -47,6 +48,15 @@
         <div class="field"><label>Contraseña</label><input type="password" id="reg-pass" required minlength="6" autocomplete="new-password"></div>
         <button class="btn" type="submit">Registrarme</button>
         <p class="muted mt"><a href="#" id="show-login">Ya tengo cuenta</a></p>
+      </form>
+    </div>
+    <div id="reset-box" class="panel hidden">
+      <h2>Restablecer contraseña</h2>
+      <p class="muted">Te enviaremos un enlace a tu correo para crear una nueva contraseña.</p>
+      <form id="reset-form">
+        <div class="field"><label>Correo</label><input type="email" id="reset-email" required autocomplete="email"></div>
+        <button class="btn" type="submit">Enviar enlace</button>
+        <p class="muted mt"><a href="#" id="show-login">Volver a iniciar sesión</a></p>
       </form>
     </div>
     <div id="account-box" class="panel hidden">
