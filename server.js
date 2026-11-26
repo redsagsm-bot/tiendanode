@@ -1012,6 +1012,38 @@ route('GET', '/api/cuenta/me', ({ req }) => {
 });
 
 if (PAYPAL_MOCK) {
+
+route('POST', '/api/cuenta/recuperar', async ({ body }) => {
+  const email = str(body.email, { min: 5, max: 160, name: 'Correo', re: EMAIL_RE }).toLowerCase();
+  const c = db.prepare('SELECT * FROM customers WHERE email = ? AND pass_hash IS NOT NULL').get(email);
+  if (!c) return { ok: true, message: 'Si el correo existe, te enviamos instrucciones.' };
+  const token = crypto.randomBytes(24).toString('base64url');
+  const expires = Date.now() + 3600e3; // 1 hora
+  db.prepare('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('reset_' + c.id, JSON.stringify({ token, expires }));
+  const smtp = smtpConfig();
+  if (smtp) {
+    const link = (process.env.PUBLIC_URL || 'https://esimgo.mx') + '/cuenta.html?reset=' + token + '&id=' + c.id;
+    try {
+      await sendMail(smtp, { to: email, subject: 'Restablecer contraseña - ' + storeConfig().storeName, text: `Hola,\n\nPara restablecer tu contraseña visita este enlace (válido por 1 hora):\n${link}\n\nSi no solicitaste esto, ignora este mensaje.` });
+    } catch (e) { console.error('[reset]', e.message); }
+  }
+  return { ok: true, message: 'Si el correo existe, te enviamos instrucciones.' };
+});
+
+route('POST', '/api/cuenta/restablecer', ({ body }) => {
+  const id = Number(body.id);
+  const token = String(body.token || '');
+  const password = String(body.password || '');
+  if (password.length < 6) fail(400, 'La contraseña debe tener al menos 6 caracteres');
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get('reset_' + id);
+  if (!row) fail(400, 'Enlace inválido o expirado');
+  const data = JSON.parse(row.value);
+  if (data.token !== token || data.expires < Date.now()) fail(400, 'Enlace inválido o expirado');
+  db.prepare('UPDATE customers SET pass_hash = ? WHERE id = ?').run(hashPassword(password), id);
+  db.prepare("DELETE FROM settings WHERE key = ?").run('reset_' + id);
+  return { ok: true };
+});
+
   // Rutas SOLO de pruebas (requieren NODE_ENV=test y PAYPAL_MOCK=1).
   route('POST', '/api/test/paypal-tamper', ({ body }) => { if (mockClient) mockClient._tamper(String(body.id), String(body.value)); return { ok: true }; });
 }
