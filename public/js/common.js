@@ -90,6 +90,13 @@
   function layout() {
     const toggle = $('.nav-toggle'), menu = $('#menu');
     if (toggle && menu) toggle.addEventListener('click', () => { const o = menu.classList.toggle('open'); toggle.setAttribute('aria-expanded', String(o)); });
+    // Agregar "Mi cuenta" al menú si no existe
+    if (menu && !menu.querySelector('a[href="cuenta.html"]')) {
+      const cartLink = menu.querySelector('a[href="carrito.html"]');
+      const accountLink = h('a', { href: 'cuenta.html', text: 'Mi cuenta' });
+      if (cartLink) menu.insertBefore(accountLink, cartLink);
+      else menu.append(accountLink);
+    }
     // Carrito siempre visible en móviles (fuera del menú hamburguesa)
     const nav = document.querySelector('.nav');
     if (nav && !document.querySelector('.cart-mobile')) {
