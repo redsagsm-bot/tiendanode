@@ -135,8 +135,11 @@
   if (footer) {
     const copy = footer.querySelector(':scope > .container:last-child');
     const badges = h('div', { class: 'container pay-badges' },
-      h('img', { src: '/img/paypal.svg', alt: 'Pagos con PayPal', width: 120, height: 40, loading: 'lazy' }),
-      h('img', { src: '/img/pago-seguro.svg', alt: 'Pago seguro', width: 150, height: 40, loading: 'lazy' }));
+      h('img', { src: '/img/paypal.svg', alt: 'Pagos con PayPal', width: 100, height: 36, loading: 'lazy' }),
+      h('img', { src: '/img/stripe.svg', alt: 'Pagos con Stripe', width: 100, height: 36, loading: 'lazy' }),
+      h('img', { src: '/img/apple-pay.svg', alt: 'Apple Pay', width: 100, height: 36, loading: 'lazy' }),
+      h('img', { src: '/img/google-pay.svg', alt: 'Google Pay', width: 100, height: 36, loading: 'lazy' }),
+      h('img', { src: '/img/pago-seguro.svg', alt: 'Pago seguro', width: 120, height: 36, loading: 'lazy' }));
     if (copy) footer.insertBefore(badges, copy); else footer.append(badges);
   }
   const typeLabel = (t, long) => (t === 'esim' ? (long ? 'eSIM (digital)' : 'eSIM') : t === 'electronicos' ? 'Electrónicos' : (long ? 'SIM física (chip)' : 'SIM física'));
