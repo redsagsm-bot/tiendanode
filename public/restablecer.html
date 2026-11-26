@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nueva contraseña | {tienda}</title>
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/styles.css">
+<script src="js/common.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<header class="site-header">
+  <nav class="container nav" aria-label="Principal">
+    <a class="brand" href="/"><span class="logo" aria-hidden="true">📶</span><span data-store-name>{tienda}</span></a>
+    <button class="nav-toggle" type="button" aria-controls="menu" aria-expanded="false" aria-label="Abrir menú">☰</button>
+    <div class="menu" id="menu">
+      <a href="/">Inicio</a>
+      <a href="productos.html">Productos</a>
+      <a href="estado.html">Mi pedido</a>
+      <a href="contacto.html">Contacto</a>
+      <a href="cuenta.html">Mi cuenta</a>
+      <a href="carrito.html">Carrito <span class="badge" data-cart-count>0</span></a>
+    </div>
+  </nav>
+</header>
+<main id="main">
+<section>
+  <div class="container" style="max-width:480px;margin:2rem auto">
+    <div class="panel">
+      <h2>Nueva contraseña</h2>
+      <p class="muted">Escribe tu nueva contraseña para recuperar el acceso.</p>
+      <form id="newpass-form">
+        <div class="field"><label>Nueva contraseña</label><input type="password" id="new-pass" required minlength="6" autocomplete="new-password"></div>
+        <div class="field"><label>Confirmar contraseña</label><input type="password" id="new-pass2" required minlength="6" autocomplete="new-password"></div>
+        <button class="btn" type="submit">Guardar contraseña</button>
+      </form>
+      <div id="msg" class="notice hidden mt"></div>
+      <p class="muted mt" id="success" hidden><a href="cuenta.html">Ir a iniciar sesión</a></p>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="site-footer">
+  <div class="container cols">
+    <div><strong data-store-name>{tienda}</strong><p>eSIM y chips para Telcel, AT&T, Bait, Movistar, Unefon y más.</p></div>
+    <div><strong>Ayuda</strong><p><a href="estado.html">Consultar mi pedido</a><br><a href="contacto.html">Contacto</a><br><a href="aviso-privacidad.html">Aviso de privacidad</a><br><a href="terminos.html">Términos y condiciones</a><br><a href="devoluciones.html">Política de devoluciones</a></p></div>
+    <div><strong>Contacto</strong><p id="footer-wa"></p><p id="footer-email"></p></div>
+  </div>
+  <div class="container"><p class="muted">© <span id="year">2026</span> <span data-store-name>{tienda}</span>.</p></div>
+</footer>
+<script>
+const params = new URLSearchParams(location.search);
+const token = params.get('reset');
+const id = params.get('id');
+const $ = (s) => document.querySelector(s);
+const notice = (msg, kind='err') => { const e = $('#msg'); e.className = 'notice ' + kind; e.textContent = msg; e.classList.remove('hidden'); };
+if (!token || !id) {
+  notice('Enlace inválido. Solicita uno nuevo desde la página de cuenta.');
+  $('#newpass-form').hidden = true;
+}
+$('#newpass-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const p1 = $('#new-pass').value;
+  const p2 = $('#new-pass2').value;
+  if (p1 !== p2) { notice('Las contraseñas no coinciden'); return; }
+  try {
+    const r = await fetch('/api/cuenta/restablecer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, token, password: p1 })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error');
+    notice('Contraseña actualizada. Ya puedes iniciar sesión.', 'ok');
+    $('#newpass-form').hidden = true;
+    $('#success').hidden = false;
+  } catch (err) { notice(err.message); }
+};
+</script>
+</body>
+</html>
