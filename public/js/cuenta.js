@@ -18,12 +18,14 @@ async function checkSession() {
 function showAccount(u) {
   $('#login-box').classList.add('hidden');
   $('#register-box').classList.add('hidden');
+  $('#reset-box').classList.add('hidden');
   $('#account-box').classList.remove('hidden');
   $('#acc-name').textContent = u.name || u.email;
   $('#acc-email').textContent = u.email;
 }
-$('#show-register').onclick = (e) => { e.preventDefault(); $('#login-box').classList.add('hidden'); $('#register-box').classList.remove('hidden'); };
-$('#show-login').onclick = (e) => { e.preventDefault(); $('#register-box').classList.add('hidden'); $('#login-box').classList.remove('hidden'); };
+$('#show-register').onclick = (e) => { e.preventDefault(); $('#login-box').classList.add('hidden'); $('#reset-box').classList.add('hidden'); $('#register-box').classList.remove('hidden'); };
+$('#show-login').onclick = (e) => { e.preventDefault(); $('#register-box').classList.add('hidden'); $('#reset-box').classList.add('hidden'); $('#login-box').classList.remove('hidden'); };
+$('#show-reset').onclick = (e) => { e.preventDefault(); $('#login-box').classList.add('hidden'); $('#register-box').classList.add('hidden'); $('#reset-box').classList.remove('hidden'); };
 $('#login-form').onsubmit = async (e) => {
   e.preventDefault();
   try {
@@ -36,6 +38,13 @@ $('#register-form').onsubmit = async (e) => {
   try {
     await api('/api/cuenta/registro', { method:'POST', body:{ name:$('#reg-name').value, email:$('#reg-email').value, phone:$('#reg-phone').value, password:$('#reg-pass').value } });
     location.reload();
+  } catch (err) { notice(err.message); }
+};
+$('#reset-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const d = await api('/api/cuenta/recuperar', { method:'POST', body:{ email:$('#reset-email').value } });
+    notice(d.message || 'Si el correo existe, te enviamos instrucciones.', 'ok');
   } catch (err) { notice(err.message); }
 };
 $('#logout-btn').onclick = async () => { await api('/api/cuenta/logout', { method:'POST' }); location.reload(); };
