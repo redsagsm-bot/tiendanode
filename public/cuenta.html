@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mi cuenta | {tienda}</title>
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/styles.css">
+<script src="js/common.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+<header class="site-header">
+  <nav class="container nav" aria-label="Principal">
+    <a class="brand" href="/"><span class="logo" aria-hidden="true">📶</span><span data-store-name>{tienda}</span></a>
+    <button class="nav-toggle" type="button" aria-controls="menu" aria-expanded="false" aria-label="Abrir menú">☰</button>
+    <div class="menu" id="menu">
+      <a href="/">Inicio</a>
+      <a href="productos.html">Productos</a>
+      <a href="estado.html">Mi pedido</a>
+      <a href="contacto.html">Contacto</a>
+      <a href="cuenta.html">Mi cuenta</a>
+      <a href="carrito.html">Carrito <span class="badge" data-cart-count>0</span></a>
+    </div>
+  </nav>
+</header>
+<main id="main">
+<section>
+  <div class="container" style="max-width:480px;margin:2rem auto">
+    <div id="login-box" class="panel">
+      <h2>Iniciar sesión</h2>
+      <p class="muted">Opcional. Puedes comprar sin cuenta.</p>
+      <form id="login-form">
+        <div class="field"><label>Correo</label><input type="email" id="login-email" required autocomplete="email"></div>
+        <div class="field"><label>Contraseña</label><input type="password" id="login-pass" required autocomplete="current-password"></div>
+        <button class="btn" type="submit">Entrar</button>
+        <p class="muted mt"><a href="#" id="show-register">¿No tienes cuenta? Regístrate</a></p>
+      </form>
+    </div>
+    <div id="register-box" class="panel hidden">
+      <h2>Crear cuenta</h2>
+      <p class="muted">Guarda tus datos para comprar más rápido la próxima vez.</p>
+      <form id="register-form">
+        <div class="field"><label>Nombre</label><input type="text" id="reg-name" required></div>
+        <div class="field"><label>Correo</label><input type="email" id="reg-email" required autocomplete="email"></div>
+        <div class="field"><label>Teléfono (opcional)</label><input type="tel" id="reg-phone"></div>
+        <div class="field"><label>Contraseña</label><input type="password" id="reg-pass" required minlength="6" autocomplete="new-password"></div>
+        <button class="btn" type="submit">Registrarme</button>
+        <p class="muted mt"><a href="#" id="show-login">Ya tengo cuenta</a></p>
+      </form>
+    </div>
+    <div id="account-box" class="panel hidden">
+      <h2>Mi cuenta</h2>
+      <p>Hola, <strong id="acc-name"></strong></p>
+      <p class="muted" id="acc-email"></p>
+      <p class="mt"><a class="btn secondary" href="estado.html">Ver mis pedidos</a></p>
+      <button class="btn danger mt" id="logout-btn" type="button">Cerrar sesión</button>
+    </div>
+    <div id="msg" class="notice hidden mt"></div>
+  </div>
+</section>
+</main>
+<footer class="site-footer">
+  <div class="container cols">
+    <div><strong data-store-name>{tienda}</strong><p>eSIM y chips para Telcel, AT&T, Bait, Movistar, Unefon y más.</p></div>
+    <div><strong>Ayuda</strong><p><a href="estado.html">Consultar mi pedido</a><br><a href="contacto.html">Contacto</a><br><a href="aviso-privacidad.html">Aviso de privacidad</a><br><a href="terminos.html">Términos y condiciones</a><br><a href="devoluciones.html">Política de devoluciones</a></p></div>
+    <div><strong>Contacto</strong><p id="footer-wa"></p><p id="footer-email"></p></div>
+  </div>
+  <div class="container"><p class="muted">© <span id="year">2026</span> <span data-store-name>{tienda}</span>.</p></div>
+</footer>
+<script>
+const $ = (s) => document.querySelector(s);
+const notice = (msg, kind='err') => { const e = $('#msg'); e.className = 'notice ' + kind; e.textContent = msg; e.classList.remove('hidden'); };
+async function api(url, opts={}) {
+  const r = await fetch(url, { method: opts.method||'GET', headers: { 'Content-Type':'application/json' }, body: opts.body ? JSON.stringify(opts.body) : undefined, credentials:'same-origin' });
+  const d = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+async function checkSession() {
+  try {
+    const d = await api('/api/cuenta/me');
+    if (d.user) showAccount(d.user);
+  } catch {}
+}
+function showAccount(u) {
+  $('#login-box').classList.add('hidden');
+  $('#register-box').classList.add('hidden');
+  $('#account-box').classList.remove('hidden');
+  $('#acc-name').textContent = u.name || u.email;
+  $('#acc-email').textContent = u.email;
+}
+$('#show-register').onclick = (e) => { e.preventDefault(); $('#login-box').classList.add('hidden'); $('#register-box').classList.remove('hidden'); };
+$('#show-login').onclick = (e) => { e.preventDefault(); $('#register-box').classList.add('hidden'); $('#login-box').classList.remove('hidden'); };
+$('#login-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/cuenta/login', { method:'POST', body:{ email:$('#login-email').value, password:$('#login-pass').value } });
+    location.reload();
+  } catch (err) { notice(err.message); }
+};
+$('#register-form').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/cuenta/registro', { method:'POST', body:{ name:$('#reg-name').value, email:$('#reg-email').value, phone:$('#reg-phone').value, password:$('#reg-pass').value } });
+    location.reload();
+  } catch (err) { notice(err.message); }
+};
+$('#logout-btn').onclick = async () => { await api('/api/cuenta/logout', { method:'POST' }); location.reload(); };
+checkSession();
+</script>
+</body>
+</html>
