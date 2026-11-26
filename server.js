@@ -944,7 +944,6 @@ route('POST', '/api/contacto', ({ body, ip }) => {
   db.prepare('INSERT INTO messages(name, email, phone, message, created_at) VALUES(?,?,?,?,?)').run(name, email, phone, message, nowIso());
   return { ok: true };
 });
-if (PAYPAL_MOCK) {
 
 // ---- Customer accounts (optional registration)
 function getCustomerSession(req) {
@@ -1012,6 +1011,7 @@ route('GET', '/api/cuenta/me', ({ req }) => {
   return { user: { id: s.customer_id, email: s.email, name: s.name } };
 });
 
+if (PAYPAL_MOCK) {
   // Rutas SOLO de pruebas (requieren NODE_ENV=test y PAYPAL_MOCK=1).
   route('POST', '/api/test/paypal-tamper', ({ body }) => { if (mockClient) mockClient._tamper(String(body.id), String(body.value)); return { ok: true }; });
 }
