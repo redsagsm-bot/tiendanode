@@ -115,9 +115,6 @@ db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_stripe ON orders(stripe_se
   }
 }
 
-const nowIso = () => new Date().toISOString();
-class HttpError extends Error { constructor(status, msg, extra) { super(msg); this.status = status; this.extra = extra; } }
-
 // Customer accounts: add password support
 db.exec(`CREATE TABLE IF NOT EXISTS customer_sessions(id TEXT PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE, csrf TEXT NOT NULL, expires_at INTEGER NOT NULL);`);
 if (!db.prepare("PRAGMA table_info(customers)").all().some(c => c.name === 'pass_hash')) {
@@ -125,6 +122,8 @@ if (!db.prepare("PRAGMA table_info(customers)").all().some(c => c.name === 'pass
   console.log('[migracion] customers ahora acepta contraseña');
 }
 
+const nowIso = () => new Date().toISOString();
+class HttpError extends Error { constructor(status, msg, extra) { super(msg); this.status = status; this.extra = extra; } }
 const fail = (s, m, e) => { throw new HttpError(s, m, e); };
 // Productos físicos: llevan stock propio, dirección y envío (a diferencia de la eSIM, que se entrega con código).
 const isPhysical = (t) => t === 'sim' || t === 'electronicos';
@@ -204,73 +203,6 @@ let ppCache = { key: '', client: null };
 let mockClient = null;
 function paypal() {
   if (PAYPAL_MOCK) return (mockClient ||= createMockPayPalClient());
-
-// ---- Customer accounts (optional registration)
-function getCustomerSession(req) {
-  const cookies = parseCookies(req);
-  const c = cookies.csid;
-  if (!c) return null;
-  const i = c.lastIndexOf('.');
-  if (i < 1) return null;
-  const id = c.slice(0, i), sig = c.slice(i + 1);
-  if (!safeEq(sig, sign(id))) return null;
-  const s = db.prepare('SELECT s.*, c.email, c.name FROM customer_sessions s JOIN customers c ON c.id = s.customer_id WHERE s.id = ?').get(id);
-  if (!s || s.expires_at < Date.now()) return null;
-  return s;
-}
-function newCustomerSession(customerId) {
-  const id = crypto.randomBytes(24).toString('base64url');
-  const csrf = crypto.randomBytes(24).toString('base64url');
-  db.prepare('INSERT INTO customer_sessions(id, customer_id, csrf, expires_at) VALUES(?,?,?,?)').run(id, customerId, csrf, Date.now() + SESSION_TTL);
-  return { id, csrf, value: id + '.' + sign(id) };
-}
-function customerCookie(req, val, maxAge) { return `csid=${val}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isHttps(req) ? '; Secure' : ''}`; }
-
-route('POST', '/api/cuenta/registro', ({ body, req, res }) => {
-  const name = str(body.name, { min: 2, max: 100, name: 'Nombre' });
-  const email = str(body.email, { min: 5, max: 160, name: 'Correo', re: EMAIL_RE }).toLowerCase();
-  const phone = str(body.phone || '', { max: 20, name: 'Teléfono' });
-  const password = String(body.password || '');
-  if (password.length < 6) fail(400, 'La contraseña debe tener al menos 6 caracteres');
-  const exists = db.prepare('SELECT id, pass_hash FROM customers WHERE email = ?').get(email);
-  if (exists && exists.pass_hash) fail(409, 'Ya existe una cuenta con ese correo');
-  const hash = hashPassword(password);
-  let id;
-  if (exists) {
-    db.prepare('UPDATE customers SET name = ?, phone = ?, pass_hash = ? WHERE id = ?').run(name, phone || null, hash, exists.id);
-    id = exists.id;
-  } else {
-    id = db.prepare('INSERT INTO customers(email, name, phone, pass_hash, created_at) VALUES(?,?,?,?,?)').run(email, name, phone || null, hash, nowIso()).lastInsertRowid;
-  }
-  const sess = newCustomerSession(id);
-  res.setHeader('Set-Cookie', customerCookie(req, sess.value, Math.floor(SESSION_TTL / 1000)));
-  return { ok: true, user: { id, email, name } };
-});
-
-route('POST', '/api/cuenta/login', ({ body, req, res }) => {
-  const email = str(body.email, { min: 5, max: 160, name: 'Correo', re: EMAIL_RE }).toLowerCase();
-  const password = String(body.password || '');
-  const c = db.prepare('SELECT * FROM customers WHERE email = ?').get(email);
-  const ok = c && c.pass_hash && verifyPassword(password, c.pass_hash);
-  if (!ok) fail(401, 'Correo o contraseña incorrectos');
-  const sess = newCustomerSession(c.id);
-  res.setHeader('Set-Cookie', customerCookie(req, sess.value, Math.floor(SESSION_TTL / 1000)));
-  return { ok: true, user: { id: c.id, email: c.email, name: c.name } };
-});
-
-route('POST', '/api/cuenta/logout', ({ req, res }) => {
-  const s = getCustomerSession(req);
-  if (s) db.prepare('DELETE FROM customer_sessions WHERE id = ?').run(s.id);
-  res.setHeader('Set-Cookie', customerCookie(req, '', 0));
-  return { ok: true };
-});
-
-route('GET', '/api/cuenta/me', ({ req }) => {
-  const s = getCustomerSession(req);
-  if (!s) return { user: null };
-  return { user: { id: s.customer_id, email: s.email, name: s.name } };
-});
-
   const c = paypalConfig();
   if (!c.enabled) fail(503, 'PayPal no está configurado');
   const key = crypto.createHash('sha256').update(c.mode + '|' + c.clientId + '|' + c.secret).digest('hex');
@@ -1013,6 +945,73 @@ route('POST', '/api/contacto', ({ body, ip }) => {
   return { ok: true };
 });
 if (PAYPAL_MOCK) {
+
+// ---- Customer accounts (optional registration)
+function getCustomerSession(req) {
+  const cookies = parseCookies(req);
+  const c = cookies.csid;
+  if (!c) return null;
+  const i = c.lastIndexOf('.');
+  if (i < 1) return null;
+  const id = c.slice(0, i), sig = c.slice(i + 1);
+  if (!safeEq(sig, sign(id))) return null;
+  const s = db.prepare('SELECT s.*, c.email, c.name FROM customer_sessions s JOIN customers c ON c.id = s.customer_id WHERE s.id = ?').get(id);
+  if (!s || s.expires_at < Date.now()) return null;
+  return s;
+}
+function newCustomerSession(customerId) {
+  const id = crypto.randomBytes(24).toString('base64url');
+  const csrf = crypto.randomBytes(24).toString('base64url');
+  db.prepare('INSERT INTO customer_sessions(id, customer_id, csrf, expires_at) VALUES(?,?,?,?)').run(id, customerId, csrf, Date.now() + SESSION_TTL);
+  return { id, csrf, value: id + '.' + sign(id) };
+}
+function customerCookie(req, val, maxAge) { return `csid=${val}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isHttps(req) ? '; Secure' : ''}`; }
+
+route('POST', '/api/cuenta/registro', ({ body, req, res }) => {
+  const name = str(body.name, { min: 2, max: 100, name: 'Nombre' });
+  const email = str(body.email, { min: 5, max: 160, name: 'Correo', re: EMAIL_RE }).toLowerCase();
+  const phone = str(body.phone || '', { max: 20, name: 'Teléfono' });
+  const password = String(body.password || '');
+  if (password.length < 6) fail(400, 'La contraseña debe tener al menos 6 caracteres');
+  const exists = db.prepare('SELECT id, pass_hash FROM customers WHERE email = ?').get(email);
+  if (exists && exists.pass_hash) fail(409, 'Ya existe una cuenta con ese correo');
+  const hash = hashPassword(password);
+  let id;
+  if (exists) {
+    db.prepare('UPDATE customers SET name = ?, phone = ?, pass_hash = ? WHERE id = ?').run(name, phone || null, hash, exists.id);
+    id = exists.id;
+  } else {
+    id = db.prepare('INSERT INTO customers(email, name, phone, pass_hash, created_at) VALUES(?,?,?,?,?)').run(email, name, phone || null, hash, nowIso()).lastInsertRowid;
+  }
+  const sess = newCustomerSession(id);
+  res.setHeader('Set-Cookie', customerCookie(req, sess.value, Math.floor(SESSION_TTL / 1000)));
+  return { ok: true, user: { id, email, name } };
+});
+
+route('POST', '/api/cuenta/login', ({ body, req, res }) => {
+  const email = str(body.email, { min: 5, max: 160, name: 'Correo', re: EMAIL_RE }).toLowerCase();
+  const password = String(body.password || '');
+  const c = db.prepare('SELECT * FROM customers WHERE email = ?').get(email);
+  const ok = c && c.pass_hash && verifyPassword(password, c.pass_hash);
+  if (!ok) fail(401, 'Correo o contraseña incorrectos');
+  const sess = newCustomerSession(c.id);
+  res.setHeader('Set-Cookie', customerCookie(req, sess.value, Math.floor(SESSION_TTL / 1000)));
+  return { ok: true, user: { id: c.id, email: c.email, name: c.name } };
+});
+
+route('POST', '/api/cuenta/logout', ({ req, res }) => {
+  const s = getCustomerSession(req);
+  if (s) db.prepare('DELETE FROM customer_sessions WHERE id = ?').run(s.id);
+  res.setHeader('Set-Cookie', customerCookie(req, '', 0));
+  return { ok: true };
+});
+
+route('GET', '/api/cuenta/me', ({ req }) => {
+  const s = getCustomerSession(req);
+  if (!s) return { user: null };
+  return { user: { id: s.customer_id, email: s.email, name: s.name } };
+});
+
   // Rutas SOLO de pruebas (requieren NODE_ENV=test y PAYPAL_MOCK=1).
   route('POST', '/api/test/paypal-tamper', ({ body }) => { if (mockClient) mockClient._tamper(String(body.id), String(body.value)); return { ok: true }; });
 }
@@ -1839,4 +1838,3 @@ function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
-
