@@ -145,6 +145,12 @@ async function main() {
     ['/gracias.html', 'gracias.html'],
     ['/aviso-privacidad.html', 'aviso-privacidad.html'],
     ['/terminos.html', 'terminos.html'],
+    ['/devoluciones.html', 'devoluciones.html'],
+    ['/guias', 'guias'],
+    ['/guias/que-es-una-esim-mexico.html', 'guias/que-es-una-esim-mexico.html'],
+    ['/guias/como-activar-esim-iphone-android.html', 'guias/como-activar-esim-iphone-android.html'],
+    ['/guias/celulares-compatibles-esim-mexico.html', 'guias/celulares-compatibles-esim-mexico.html'],
+    ['/guias/chip-registrado-y-vinculado.html', 'guias/chip-registrado-y-vinculado.html'],
   ];
   const assets = new Set();
   for (const [path, label] of pages) {
@@ -209,7 +215,17 @@ async function main() {
   r = await pub.get('/favicon.ico');
   ok(r.status === 200 && /icon/.test(r.headers.get('content-type') || '') && r.text.length > 100, 'favicon.ico responde');
   r = await pub.get('/sitemap.xml');
-  ok(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/.test(r.text) && /aviso-privacidad\.html/.test(r.text) && /terminos\.html/.test(r.text) && /producto\.html\?id=1/.test(r.text), 'sitemap con lastmod, legales y productos');
+  ok(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/.test(r.text) && /aviso-privacidad\.html/.test(r.text) && /terminos\.html/.test(r.text) && /devoluciones\.html/.test(r.text) && /\/guias</.test(r.text) && /guias\/que-es-una-esim-mexico\.html/.test(r.text) && /producto\.html\?id=1/.test(r.text), 'sitemap con lastmod, legales, guías y productos');
+  r = await pub.get('/guias/');
+  ok(r.status === 301 && r.headers.get('location') === '/guias', '/guias/ redirige 301 a /guias', r.headers.get('location'));
+  r = await pub.get('/guias/index.html');
+  ok(r.status === 301 && r.headers.get('location') === '/guias', '/guias/index.html redirige 301 a /guias');
+  r = await pub.get('/guias');
+  ok(/<title>Guías de eSIM y chips en México \| eSIMGO\.MX<\/title>/.test(r.text) && /rel="canonical" href="https:\/\/www\.esimgo\.mx\/guias"/.test(r.text) && /href="\/guias">Guías<\/a>/.test(r.text), 'Guías: título, canonical y enlace en nav', (r.text.match(/<title>[^<]*<\/title>/) || [])[0]);
+  r = await pub.get('/guias/que-es-una-esim-mexico.html');
+  ok(/<title>Qué es una eSIM y cómo funciona en México \| eSIMGO\.MX<\/title>/.test(r.text) && /rel="canonical" href="https:\/\/www\.esimgo\.mx\/guias\/que-es-una-esim-mexico\.html"/.test(r.text) && /Una eSIM es un chip digital que ya viene integrado en tu celular/.test(r.text), 'Guía eSIM: título, canonical y texto');
+  r = await pub.get('/devoluciones.html');
+  ok(/<title>Política de devoluciones \| eSIMGO\.MX<\/title>/.test(r.text) && /rel="canonical" href="https:\/\/www\.esimgo\.mx\/devoluciones\.html"/.test(r.text), 'Devoluciones: título y canonical');
   r = await pub.get('/aviso-privacidad.html');
   ok(/Plantilla sin valor legal/.test(r.text) && /\[COMPLETA:/.test(r.text), 'Aviso de privacidad es plantilla');
   r = await pub.get('/terminos.html');

@@ -1413,6 +1413,36 @@ const PAGE_SEO = {
     description: 'Plantilla de términos y condiciones de compra. El titular de la tienda debe completar los datos marcados antes de publicarla como texto vigente.',
     path: '/terminos.html',
   },
+  'devoluciones.html': {
+    title: (n) => `Política de devoluciones | ${n}`,
+    description: 'Política de devoluciones y reembolsos de eSIM, chips físicos y electrónicos.',
+    path: '/devoluciones.html',
+  },
+  'guias/index.html': {
+    title: (n) => `Guías de eSIM y chips en México | ${n}`,
+    description: 'Guías para entender la eSIM, activarla en iPhone y Android, saber si tu celular es compatible y qué significa un chip registrado y vinculado en México.',
+    path: '/guias',
+  },
+  'guias/que-es-una-esim-mexico.html': {
+    title: (n) => `Qué es una eSIM y cómo funciona en México | ${n}`,
+    description: 'Una eSIM es un chip digital en tu celular. Te explicamos cómo funciona en México, qué necesitas y en qué se diferencia del chip físico.',
+    path: '/guias/que-es-una-esim-mexico.html',
+  },
+  'guias/como-activar-esim-iphone-android.html': {
+    title: (n) => `Cómo activar una eSIM en iPhone y Android | ${n}`,
+    description: 'Pasos para activar una eSIM en iPhone, Samsung y Android con el código QR. Qué hacer antes de instalarla y cómo revisar si ya quedó con datos.',
+    path: '/guias/como-activar-esim-iphone-android.html',
+  },
+  'guias/celulares-compatibles-esim-mexico.html': {
+    title: (n) => `Celulares compatibles con eSIM en México | ${n}`,
+    description: 'Cómo saber si tu celular es compatible con eSIM en México: busca el EID, revisa iPhone, Samsung y Android, y consulta las listas de cada compañía.',
+    path: '/guias/celulares-compatibles-esim-mexico.html',
+  },
+  'guias/chip-registrado-y-vinculado.html': {
+    title: (n) => `Chip registrado y vinculado: qué significa | ${n}`,
+    description: 'Qué significa que un chip o eSIM esté registrado y vinculado en México, cómo funciona el registro con CURP y qué pasa si la línea no se vincula.',
+    path: '/guias/chip-registrado-y-vinculado.html',
+  },
   'producto.html': {
     title: (n) => `Producto | ${n}`,
     description: 'Detalle, precio en MXN y descripción del producto.',
@@ -1667,6 +1697,12 @@ function sitemapXml(base) {
     ['/contacto.html', 'contacto.html'],
     ['/aviso-privacidad.html', 'aviso-privacidad.html'],
     ['/terminos.html', 'terminos.html'],
+    ['/devoluciones.html', 'devoluciones.html'],
+    ['/guias', 'guias/index.html'],
+    ['/guias/que-es-una-esim-mexico.html', 'guias/que-es-una-esim-mexico.html'],
+    ['/guias/como-activar-esim-iphone-android.html', 'guias/como-activar-esim-iphone-android.html'],
+    ['/guias/celulares-compatibles-esim-mexico.html', 'guias/celulares-compatibles-esim-mexico.html'],
+    ['/guias/chip-registrado-y-vinculado.html', 'guias/chip-registrado-y-vinculado.html'],
   ];
   const urls = pages.map(([loc, file]) => ({ loc: base + loc, lastmod: fileLastmod(file) }));
   for (const row of db.prepare('SELECT id, created_at FROM products WHERE active = 1 AND deleted = 0 ORDER BY id').all()) {
@@ -1776,7 +1812,21 @@ async function handle(req, res) {
     res.writeHead(301, { Location: '/' + url.search, 'Cache-Control': 'public, max-age=86400' });
     return res.end();
   }
+  if (p === '/guias/' || p === '/guias/index.html') {
+    res.writeHead(301, { Location: '/guias' + url.search, 'Cache-Control': 'public, max-age=86400' });
+    return res.end();
+  }
   try { notifyVisit(req, p); } catch (e) { console.error('[visita]', e.message); }
+  if (p === '/guias') {
+    try { return sendHtml(req, res, 200, renderPublicHtml('guias/index.html', { nonce })); }
+    catch (e) { console.error('[html]', e); return notFound(req, res); }
+  }
+  if (/^\/guias\/[A-Za-z0-9._-]+\.html$/.test(p)) {
+    const file = p.slice(1);
+    if (!fs.existsSync(path.join(PUBLIC_DIR, file))) return notFound(req, res);
+    try { return sendHtml(req, res, 200, renderPublicHtml(file, { nonce })); }
+    catch (e) { console.error('[html]', e); return notFound(req, res); }
+  }
   if (p === '/producto.html') {
     const idRaw = url.searchParams.get('id');
     const id = /^\d{1,15}$/.test(idRaw || '') ? Number(idRaw) : 0;

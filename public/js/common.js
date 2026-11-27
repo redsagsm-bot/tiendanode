@@ -91,16 +91,16 @@
     const toggle = $('.nav-toggle'), menu = $('#menu');
     if (toggle && menu) toggle.addEventListener('click', () => { const o = menu.classList.toggle('open'); toggle.setAttribute('aria-expanded', String(o)); });
     // Agregar "Mi cuenta" al menú si no existe
-    if (menu && !menu.querySelector('a[href="cuenta.html"]')) {
-      const cartLink = menu.querySelector('a[href="carrito.html"]');
-      const accountLink = h('a', { href: 'cuenta.html', text: 'Mi cuenta' });
+    if (menu && !menu.querySelector('a[href="cuenta.html"], a[href="/cuenta.html"]')) {
+      const cartLink = menu.querySelector('a[href="carrito.html"], a[href="/carrito.html"]');
+      const accountLink = h('a', { href: '/cuenta.html', text: 'Mi cuenta' });
       if (cartLink) menu.insertBefore(accountLink, cartLink);
       else menu.append(accountLink);
     }
     // Carrito siempre visible en móviles (fuera del menú hamburguesa)
     const nav = document.querySelector('.nav');
     if (nav && !document.querySelector('.cart-mobile')) {
-      const cartLink = h('a', { class: 'cart-mobile', href: 'carrito.html', 'aria-label': 'Carrito' },
+      const cartLink = h('a', { class: 'cart-mobile', href: '/carrito.html', 'aria-label': 'Carrito' },
         h('span', { text: '🛒' }),
         h('span', { class: 'badge', 'data-cart-count': '' }, '0'));
       nav.insertBefore(cartLink, toggle);
