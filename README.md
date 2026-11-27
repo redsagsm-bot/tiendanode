@@ -5,7 +5,7 @@ Tienda en línea en español (es-MX), con precios en MXN, para vender **eSIM** (
 - Backend: Node.js 22 o superior, solo con módulos incluidos (`node:http`, `node:crypto`, `node:sqlite`). No necesita `npm install`.
 - Frontend: HTML, CSS y JavaScript sin compilación.
 - Base de datos: SQLite en `DATA_DIR`. Por defecto es `./data` y se crea sola.
-- Pagos: PayPal (Orders v2: creación y captura en el servidor) y Stripe Checkout (tarjeta, sin SDK). Si PayPal no está configurado, se ofrece pago manual por transferencia o WhatsApp.
+- Pagos: PayPal (Orders v2: creación y captura en el servidor), Stripe Checkout (tarjeta, sin SDK) y transferencia SPEI por Conekta (CLABE única y confirmación por webhook). También hay pago manual por transferencia o WhatsApp.
 
 > Se cargan 8 productos **[EJEMPLO]** solo si la base de datos está vacía. Edítalos o bórralos desde el panel.
 
@@ -56,17 +56,19 @@ docker build -t tienda . && docker run -p 3000:3000 -v tienda-data:/data tienda
 | `SEED_EJEMPLOS=0` | No cargar los productos de ejemplo | — |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`, `PAYPAL_MODE` | PayPal (`sandbox` o `live`). Si están definidas aquí, el panel no las puede editar | — |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Pago con tarjeta por Stripe Checkout (`sk_test_...` o `sk_live_...` y `whsec_...`). Webhook: `https://TU-DOMINIO/api/stripe/webhook`, evento `checkout.session.completed` | — |
+| `CONEKTA_PRIVATE_KEY`, `CONEKTA_WEBHOOK_PUBLIC_KEY` | Transferencia SPEI por Conekta (llave privada `key_...` y PEM pública del webhook). Webhook: `https://www.esimgo.mx/api/conekta/webhook`, evento principal `order.paid`. Opcional: `CONEKTA_API_VERSION` (por defecto `2.3.0`) | — |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Correo de confirmación (opcional) | puerto `587` |
 | `TIDIO_KEY` | Public Key de Tidio para mostrar el chat en la tienda (opcional) | — |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Avisos al dueño por Telegram: pedido nuevo, pago confirmado, stock bajo (opcional) | — |
 | `VISIT_NOTIFY_COOLDOWN_MIN` | Minutos entre avisos de visita por la misma IP (0 = avisar todas las visitas) | 10 |
 | `PAYPAL_MOCK=1` | PayPal simulado. **Solo funciona con `NODE_ENV=test`** | — |
+| `CONEKTA_MOCK=1` | Conekta SPEI simulado. **Solo funciona con `NODE_ENV=test`** | — |
 
 El *secret* de PayPal y la contraseña SMTP nunca se envían al navegador. En el panel aparecen enmascarados.
 
 ## Cómo funciona
 
-- **eSIM:** el código y el QR se entregan solo cuando PayPal confirma una captura `COMPLETED` cuyo monto y moneda coinciden con el pedido. Los pagos manuales se entregan cuando el admin pulsa «Confirmar pago». La asignación es atómica (transacciones SQLite) y la captura es idempotente. Los códigos reservados se liberan al vencer la reserva.
+- **eSIM:** el código y el QR se entregan cuando PayPal confirma una captura `COMPLETED`, cuando Stripe confirma el pago, o cuando Conekta envía `order.paid` (monto y moneda deben coincidir con el pedido). Los pagos manuales se entregan cuando el admin pulsa «Confirmar pago». La asignación es atómica (transacciones SQLite) y la confirmación es idempotente. Los códigos reservados se liberan al vencer la reserva. Los pedidos SPEI reservan durante `RESERVA_MANUAL_HORAS` (48 h por defecto).
 - **SIM física:** pasa por pagado → preparando → enviado (con número de guía) → entregado.
 - **Seguimiento:** `/estado.html` funciona con el número de pedido y el correo, o con el enlace con token.
 - **Panel `/admin/`:** dashboard con gráfica, productos (con imágenes), inventario eSIM (individual, masivo o CSV `codigo,pin,puk,qr_url`, con códigos enmascarados), pedidos, clientes, mensajes y ajustes (prueba de SMTP y de PayPal, cambio de contraseña).
@@ -87,6 +89,7 @@ Después de publicar: en Google Search Console envía de nuevo `https://www.esim
 - Una sola instancia (SQLite). Para escalar hay que cambiar a otra base de datos.
 - Sin volumen en `/data`, Railway borra los datos en cada despliegue.
 - No hay webhooks de PayPal: el pago se confirma al capturar desde el navegador. Si el cliente cierra la ventana justo después de pagar, el admin puede revisarlo en PayPal y confirmar el pedido a mano.
+- Los pagos SPEI de Conekta se confirman solo por webhook (`/api/conekta/webhook`). Hay que registrar esa URL en el Panel Conekta y guardar la llave pública del webhook en `CONEKTA_WEBHOOK_PUBLIC_KEY`.
 - Los reembolsos se marcan en el panel, pero se hacen desde PayPal.
 - El correo SMTP usa STARTTLS o TLS básico, sin colas de reintento.
 - No se probó contra PayPal real ni contra un servidor SMTP real; se usó el simulador.
