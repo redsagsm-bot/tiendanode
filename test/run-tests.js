@@ -588,6 +588,16 @@ async function main() {
   r = await kpub.post('/api/pedidos', { items: [{ id: speiProd, qty: 1 }], customer: CUSTOMER, payment: 'spei' });
   ok(r.status === 200 && r.json.paymentMethod === 'spei' && r.json.spei && /^\d{18}$/.test(r.json.spei.clabe), 'Crear pedido SPEI devuelve CLABE de 18 dígitos', r.json);
   const sOrd = r.json;
+  const lastEsim = await kpub.get('/api/test/conekta-last');
+  const slEsim = lastEsim.json && lastEsim.json.payload && lastEsim.json.payload.shipping_lines;
+  ok(lastEsim.status === 200 && Array.isArray(slEsim) && slEsim[0] && slEsim[0].amount === 0, 'Pedido eSIM SPEI envía shipping_lines con monto 0', lastEsim.json);
+  r = await kadm.post('/api/admin/productos', { name: 'Chip SPEI', carrier: 'Telcel', type: 'sim', price: '15', stock: 3, active: true });
+  const speiSim = r.json.producto.id;
+  const rSim = await kpub.post('/api/pedidos', { items: [{ id: speiSim, qty: 1 }], customer: { ...CUSTOMER, email: 'speisim@ejemplo.com' }, address: ADDRESS, payment: 'spei' });
+  ok(rSim.status === 200 && rSim.json.spei && /^\d{18}$/.test(rSim.json.spei.clabe), 'Pedido SPEI con envío físico genera CLABE', rSim.json);
+  const lastSim = await kpub.get('/api/test/conekta-last');
+  const slSim = lastSim.json && lastSim.json.payload && lastSim.json.payload.shipping_lines;
+  ok(lastSim.status === 200 && Array.isArray(slSim) && slSim[0] && slSim[0].amount === 9900, 'Pedido físico SPEI envía shipping_lines con el costo de envío', lastSim.json);
   const clabe1 = sOrd.spei.clabe;
   r = await kpub.get(`/api/pedidos/estado?n=${sOrd.number}&t=${sOrd.token}`);
   ok(r.json.pedido.status === 'pendiente_pago' && r.json.pedido.spei.clabe === clabe1 && r.json.pedido.items[0].codes.length === 0, 'Estado pendiente muestra CLABE y no revela códigos');
@@ -653,6 +663,8 @@ async function main() {
   ok(r.json.conekta && r.json.conekta.enabled === false, 'CONEKTA_MOCK=1 ignorado en producción');
   r = await client(D.base).post('/api/test/paypal-tamper', { id: 'x', value: '1' });
   ok(r.status === 404, 'Ruta de prueba inexistente en producción');
+  r = await client(D.base).get('/api/test/conekta-last');
+  ok(r.status === 404, 'Ruta de prueba Conekta inexistente en producción');
   ok(/PAYPAL_MOCK=1 ignorado/.test(D.log()), 'Aviso en logs');
   ok(/CONEKTA_MOCK=1 ignorado/.test(D.log()), 'Aviso CONEKTA_MOCK en logs');
   r = await fetch(D.base + '/health');

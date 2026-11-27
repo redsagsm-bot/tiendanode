@@ -213,8 +213,21 @@ function conekta() {
   if (!conektaEnabled()) fail(503, 'Conekta no está configurado');
   return (conektaClient ||= createConektaClient({ privateKey: CONEKTA_KEY, apiVersion: CONEKTA_API_VERSION }));
 }
+function logConektaError(e) {
+  const parts = ['[conekta]'];
+  if (e && e.status) parts.push('HTTP ' + e.status);
+  if (e && e.type) parts.push(e.type);
+  if (e && e.code) parts.push(e.code);
+  if (e && e.param) parts.push('param=' + e.param);
+  parts.push(e && e.message ? e.message : 'error');
+  console.error(parts.join(' '));
+}
 async function conektaCall(fn) {
-  try { return await fn(conekta()); } catch (e) { if (e instanceof HttpError) throw e; console.error('[conekta]', e.message); fail(502, 'No se pudo comunicar con Conekta. Intenta de nuevo.'); }
+  try { return await fn(conekta()); } catch (e) {
+    if (e instanceof HttpError) throw e;
+    logConektaError(e);
+    fail(502, 'No se pudo comunicar con Conekta. Intenta de nuevo.');
+  }
 }
 function formatConektaPhone(phone) {
   const d = String(phone || '').replace(/\D/g, '');
@@ -658,7 +671,8 @@ async function attachSpeiPayment(orderRow) {
       charges: [{ payment_method: { type: 'spei', expires_at: Math.floor(o.expires_at / 1000) } }],
       metadata: { order_number: o.number, order_id: String(o.id) },
     };
-    if (o.shipping > 0) payload.shipping_lines = [{ amount: o.shipping, carrier: 'Envío' }];
+    // Conekta exige shipping_lines aunque el envío sea $0 (p. ej. eSIM).
+    payload.shipping_lines = [{ amount: o.shipping || 0, carrier: 'Envío' }];
     if (o.address) {
       try {
         const a = JSON.parse(o.address);
@@ -1244,6 +1258,12 @@ route('POST', '/api/cuenta/restablecer', ({ body }) => {
 if (PAYPAL_MOCK) {
   // (requieren NODE_ENV=test y PAYPAL_MOCK=1)
   route('POST', '/api/test/paypal-tamper', ({ body }) => { if (mockClient) mockClient._tamper(String(body.id), String(body.value)); return { ok: true }; });
+}
+if (CONEKTA_MOCK) {
+  route('GET', '/api/test/conekta-last', () => {
+    const c = conektaClient;
+    return { ok: true, payload: c && c.lastPayload ? c.lastPayload : null };
+  });
 }
 
 // ---- Admin auth
