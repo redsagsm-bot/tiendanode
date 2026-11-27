@@ -76,7 +76,7 @@ El *secret* de PayPal y la contraseña SMTP nunca se envían al navegador. En el
 
 Las páginas públicas salen del servidor con título, descripción, canonical (`PUBLIC_URL` o, si no está definida, `https://www.esimgo.mx`), Open Graph y el nombre de la tienda. `/producto.html?id=N` incluye el producto en el HTML; un id inexistente responde 404. `/index.html` redirige a `/`.
 
-`aviso-privacidad.html` y `terminos.html` son **plantillas**: hay que completar los campos `[COMPLETA: …]` y quitar el aviso amarillo. No contienen datos legales del negocio.
+`aviso-privacidad.html`, `terminos.html` y `devoluciones.html` contienen el aviso de privacidad, los términos y la política de devoluciones vigentes.
 
 Las imágenes subidas siguen guardándose como PNG, JPG, WEBP o GIF. Si el sistema tiene `cwebp` (la imagen Docker instala el paquete `webp`), además se genera un `.webp` de hasta 1600 px y el navegador lo recibe cuando lo pide. Sin esa herramienta se sirve el archivo original. Conviene volver a subir logotipo y banners muy pesados, o dejar que el arranque genere los `.webp` de lo que ya está en `uploads/`.
 
