@@ -32,6 +32,24 @@ document.addEventListener('DOMContentLoaded', async () => {
           h('p', {}, 'Total a pagar: ', h('strong', { text: money(o.total) }), '. Incluye tu número de pedido ', h('strong', { text: o.number }), ' en el concepto.'),
           o.expiresAt ? h('p', { class: 'muted', text: 'Reservamos tu pedido hasta el ' + fmtDate(o.expiresAt) + '.' }) : null,
           cfg.whatsapp ? h('a', { class: 'btn green', href: waLink(cfg.whatsapp, `Hola, envío el comprobante de mi pedido ${o.number} por ${money(o.total)}`), target: '_blank', rel: 'noopener', text: 'Enviar comprobante por WhatsApp' }) : null));
+      } else if (o.paymentMethod === 'spei') {
+        const sp = o.spei || {};
+        if (sp.clabe) {
+          wrap.append(h('div', { class: 'notice' }, h('strong', { text: 'Paga con transferencia SPEI' }),
+            sp.bank ? h('p', {}, 'Banco: ', h('strong', { text: sp.bank })) : null,
+            h('p', {}, 'CLABE: ', h('strong', { class: 'code-box', style: { display: 'inline-block', marginRight: '.4rem' }, text: sp.clabe }), ' ', copyBtn(sp.clabe)),
+            h('p', {}, 'Total a pagar (monto exacto): ', h('strong', { text: money(o.total) })),
+            h('p', { class: 'muted', text: 'Haz la transferencia desde tu banca en línea por el monto exacto. En cuanto Conekta confirme el pago, tu pedido se actualiza solo.' }),
+            (sp.expiresAt || o.expiresAt) ? h('p', { class: 'muted', text: 'Esta CLABE y la reserva vencen el ' + fmtDate(sp.expiresAt || o.expiresAt) + '.' }) : null));
+        } else if (full) {
+          const smsg = h('div', { class: 'hidden' });
+          wrap.append(h('div', { class: 'notice info' }, h('p', { text: 'Estamos generando tu CLABE de pago. Si no aparece, pulsa el botón.' }),
+            h('button', { class: 'btn', type: 'button', onclick: async (e) => {
+              e.target.disabled = true;
+              try { await api('/api/conekta/crear', { method: 'POST', body: { number: n, token: t } }); load(); }
+              catch (err) { notice(smsg, err.message); e.target.disabled = false; }
+            }, text: 'Obtener CLABE' }), smsg));
+        }
       } else if (o.paymentMethod === 'stripe') {
         if (full) {
           const smsg = h('div', { class: 'hidden' });
@@ -98,7 +116,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       load();
     })();
-  } else if (n && t) load();
+  } else if (n && t) {
+    load();
+    (async () => {
+      for (let i = 0; i < 40; i++) {
+        await new Promise((res) => setTimeout(res, 15000));
+        try {
+          const { pedido } = await api(`/api/pedidos/estado?n=${encodeURIComponent(n)}&t=${encodeURIComponent(t)}`);
+          if (!pedido || pedido.status !== 'pendiente_pago') { load(); break; }
+          if (pedido.paymentMethod === 'spei' && pedido.spei && pedido.spei.clabe) {
+            const shown = document.body.textContent.includes(pedido.spei.clabe);
+            if (!shown) load();
+          }
+        } catch { break; }
+      }
+    })();
+  }
   else {
     $('#lookup').classList.remove('hidden');
     try { const last = JSON.parse(localStorage.getItem('ultimo_pedido') || 'null'); if (last && last.n && last.t) box.append(h('p', { class: 'notice info' }, 'Tu último pedido: ', h('a', { href: `estado.html?n=${encodeURIComponent(last.n)}&t=${encodeURIComponent(last.t)}`, text: last.n }))); } catch { /* */ }

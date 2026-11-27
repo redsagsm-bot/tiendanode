@@ -28,9 +28,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const pm = $('#pay-methods');
   const opt = (value, title, desc, checked) => h('label', { class: 'radio-card' }, h('input', { type: 'radio', name: 'payment', value, checked }),
     h('span', {}, h('strong', { text: title }), h('br'), h('span', { class: 'muted', text: desc })));
-  if (cfg.paypal && cfg.paypal.enabled) pm.append(opt('paypal', 'PayPal o tarjeta', 'Pago inmediato y seguro. Tu eSIM se entrega al instante.', true));
-  if (cfg.stripe && cfg.stripe.enabled) pm.append(opt('stripe', 'Tarjeta de crédito o débito (Stripe)', 'Pago seguro con tarjeta. Tu eSIM se entrega al instante.', !(cfg.paypal && cfg.paypal.enabled)));
-  pm.append(opt('manual', 'Transferencia SPEI / depósito (por WhatsApp)', 'Te damos los datos bancarios; envía tu comprobante por WhatsApp y confirmamos tu pedido.', !((cfg.paypal && cfg.paypal.enabled) || (cfg.stripe && cfg.stripe.enabled))));
+  const hasPaypal = !!(cfg.paypal && cfg.paypal.enabled);
+  const hasStripe = !!(cfg.stripe && cfg.stripe.enabled);
+  const hasSpei = !!(cfg.conekta && cfg.conekta.enabled);
+  if (hasPaypal) pm.append(opt('paypal', 'PayPal o tarjeta', 'Pago inmediato y seguro. Tu eSIM se entrega al instante.', true));
+  if (hasStripe) pm.append(opt('stripe', 'Tarjeta de crédito o débito (Stripe)', 'Pago seguro con tarjeta. Tu eSIM se entrega al instante.', !hasPaypal));
+  if (hasSpei) pm.append(opt('spei', 'Transferencia SPEI', 'Te damos una CLABE. Al pagar el monto exacto, el pedido se confirma solo.', !hasPaypal && !hasStripe));
+  pm.append(opt('manual', 'Transferencia / depósito (por WhatsApp)', 'Te damos los datos bancarios; envía tu comprobante por WhatsApp y confirmamos tu pedido.', !hasPaypal && !hasStripe && !hasSpei));
 
   // Prellenado
   try { const saved = JSON.parse(localStorage.getItem('cliente_v1') || '{}'); for (const k of ['name', 'email', 'phone']) if (saved[k]) form.elements[k].value = saved[k]; } catch { /* */ }

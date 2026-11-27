@@ -12,6 +12,7 @@ const os = require('node:os');
 const { sendMail } = require('./lib/smtp');
 const { createPayPalClient, createMockPayPalClient } = require('./lib/paypal');
 const { createStripeClient, verifyWebhook } = require('./lib/stripe');
+const { createConektaClient, createMockConektaClient, extractSpeiMethod, verifyWebhookSignature, normalizePem } = require('./lib/conekta');
 const { imageSizeFile, optimizeFile } = require('./lib/images');
 
 // ---------------------------------------------------------------- Config
@@ -29,6 +30,8 @@ const HOST = process.env.HOST || '0.0.0.0';
 const IS_TEST = process.env.NODE_ENV === 'test';
 const PAYPAL_MOCK = IS_TEST && process.env.PAYPAL_MOCK === '1';
 if (process.env.PAYPAL_MOCK === '1' && !IS_TEST) console.warn('[aviso] PAYPAL_MOCK=1 ignorado: solo funciona con NODE_ENV=test.');
+const CONEKTA_MOCK = IS_TEST && process.env.CONEKTA_MOCK === '1';
+if (process.env.CONEKTA_MOCK === '1' && !IS_TEST) console.warn('[aviso] CONEKTA_MOCK=1 ignorado: solo funciona con NODE_ENV=test.');
 const RESERVA_MIN = num(process.env.RESERVA_MINUTOS, 15);
 const RESERVA_MANUAL_H = num(process.env.RESERVA_MANUAL_HORAS, 48);
 const EXPIRY_INTERVAL = Math.max(200, num(process.env.EXPIRY_INTERVAL_MS, 30000));
@@ -91,6 +94,14 @@ CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, name TEXT NOT NULL, 
 `);
 if (!db.prepare('PRAGMA table_info(orders)').all().some((c) => c.name === 'stripe_session_id')) db.exec('ALTER TABLE orders ADD COLUMN stripe_session_id TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_stripe ON orders(stripe_session_id)');
+{
+  const cols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
+  if (!cols.includes('conekta_order_id')) db.exec('ALTER TABLE orders ADD COLUMN conekta_order_id TEXT');
+  if (!cols.includes('spei_clabe')) db.exec('ALTER TABLE orders ADD COLUMN spei_clabe TEXT');
+  if (!cols.includes('spei_bank')) db.exec('ALTER TABLE orders ADD COLUMN spei_bank TEXT');
+  if (!cols.includes('spei_expires_at')) db.exec('ALTER TABLE orders ADD COLUMN spei_expires_at INTEGER');
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_conekta ON orders(conekta_order_id)');
 // Migración: el tipo 'electronicos' no cabía en el CHECK de products. SQLite no permite alterarlo, se reconstruye la tabla.
 {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'products'").get();
@@ -191,6 +202,26 @@ function stripe() {
 }
 async function stripeCall(fn) {
   try { return await fn(stripe()); } catch (e) { if (e instanceof HttpError) throw e; console.error('[stripe]', e.message); fail(502, 'No se pudo comunicar con Stripe. Intenta de nuevo.'); }
+}
+const CONEKTA_KEY = process.env.CONEKTA_PRIVATE_KEY || '';
+const CONEKTA_WEBHOOK_PUBLIC_KEY = normalizePem(process.env.CONEKTA_WEBHOOK_PUBLIC_KEY || '');
+const CONEKTA_API_VERSION = process.env.CONEKTA_API_VERSION || '2.3.0';
+const conektaEnabled = () => CONEKTA_MOCK || /^key_/.test(CONEKTA_KEY);
+let conektaClient = null;
+function conekta() {
+  if (CONEKTA_MOCK) return (conektaClient ||= createMockConektaClient());
+  if (!conektaEnabled()) fail(503, 'Conekta no está configurado');
+  return (conektaClient ||= createConektaClient({ privateKey: CONEKTA_KEY, apiVersion: CONEKTA_API_VERSION }));
+}
+async function conektaCall(fn) {
+  try { return await fn(conekta()); } catch (e) { if (e instanceof HttpError) throw e; console.error('[conekta]', e.message); fail(502, 'No se pudo comunicar con Conekta. Intenta de nuevo.'); }
+}
+function formatConektaPhone(phone) {
+  const d = String(phone || '').replace(/\D/g, '');
+  if (d.startsWith('52') && d.length >= 12) return '+' + d;
+  if (d.length === 10) return '+52' + d;
+  if (String(phone || '').trim().startsWith('+') && d.length >= 10) return '+' + d;
+  return '+52' + d.slice(-10);
 }
 function paypalConfig() {
   const fromEnv = !!(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_SECRET);
@@ -518,7 +549,10 @@ function createOrder(b) {
     const row = db.prepare('SELECT id FROM orders WHERE number = ?').get(res.number);
     if (row && telegramEnabled()) {
       const s = orderSummary(row.id);
-      const how = res.paymentMethod === 'paypal' ? 'pago con PayPal pendiente' : res.paymentMethod === 'stripe' ? 'pago con Stripe pendiente' : 'transferencia/manual: esperando comprobante';
+      const how = res.paymentMethod === 'paypal' ? 'pago con PayPal pendiente'
+        : res.paymentMethod === 'stripe' ? 'pago con Stripe pendiente'
+        : res.paymentMethod === 'spei' ? 'SPEI Conekta: esperando transferencia'
+        : 'transferencia/manual: esperando comprobante';
       notifyAdmin(`Pedido nuevo ${res.number}\n${s.o.name} - ${s.total}\n${how}\n${s.lines}`);
     }
   } catch (e) { console.error('[telegram]', e.message); }
@@ -536,9 +570,10 @@ function createOrderTx(b) {
   const name = str(c.name, { min: 2, max: 100, name: 'Nombre' });
   const email = str(c.email, { min: 5, max: 160, name: 'Correo', re: EMAIL_RE }).toLowerCase();
   const phone = str(c.phone, { min: 10, max: 20, name: 'Teléfono / WhatsApp', re: PHONE_RE });
-  const method = b.payment === 'paypal' ? 'paypal' : b.payment === 'stripe' ? 'stripe' : b.payment === 'manual' ? 'manual' : fail(400, 'Método de pago inválido');
+  const method = b.payment === 'paypal' ? 'paypal' : b.payment === 'stripe' ? 'stripe' : b.payment === 'spei' ? 'spei' : b.payment === 'manual' ? 'manual' : fail(400, 'Método de pago inválido');
   if (method === 'paypal' && !paypalConfig().enabled) fail(400, 'PayPal no está disponible. Elige pago por transferencia/WhatsApp.');
   if (method === 'stripe' && !stripeEnabled()) fail(400, 'Stripe no está disponible. Elige otro método de pago.');
+  if (method === 'spei' && !conektaEnabled()) fail(400, 'La transferencia SPEI no está disponible. Elige otro método de pago.');
   expireOrders();
   return tx(() => {
     const products = [];
@@ -567,9 +602,11 @@ function createOrderTx(b) {
     const total = subtotal + shipping;
     if (method === 'paypal' && total < 100) fail(400, 'El total mínimo para PayPal es $1.00 MXN');
     if (method === 'stripe' && total < 1000) fail(400, 'El total mínimo para pagar con tarjeta es $10.00 MXN');
+    if (method === 'spei' && total < 1500) fail(400, 'El total mínimo para transferencia SPEI es $15.00 MXN');
     const cust = db.prepare(`INSERT INTO customers(email, name, phone, created_at) VALUES(?,?,?,?)
       ON CONFLICT(email) DO UPDATE SET name = excluded.name, phone = excluded.phone RETURNING id`).get(email, name, phone, nowIso());
-    const expires = Date.now() + (method !== 'manual' ? RESERVA_MIN * 60e3 : RESERVA_MANUAL_H * 3600e3);
+    const slowPay = method === 'manual' || method === 'spei';
+    const expires = Date.now() + (slowPay ? RESERVA_MANUAL_H * 3600e3 : RESERVA_MIN * 60e3);
     const number = orderNumber();
     const token = crypto.randomBytes(24).toString('base64url');
     const o = db.prepare(`INSERT INTO orders(number, token, customer_id, name, email, phone, address, subtotal, shipping, total, status,
@@ -590,6 +627,63 @@ function createOrderTx(b) {
     }
     return { number, token, total, paymentMethod: method, expiresAt: new Date(expires).toISOString() };
   });
+}
+
+function speiPublic(o) {
+  if (o.payment_method !== 'spei' || o.status !== 'pendiente_pago') return null;
+  return {
+    clabe: o.spei_clabe || '',
+    bank: o.spei_bank || '',
+    expiresAt: o.spei_expires_at ? new Date(o.spei_expires_at).toISOString() : (o.expires_at ? new Date(o.expires_at).toISOString() : null),
+  };
+}
+
+const speiInflight = new Map();
+async function attachSpeiPayment(orderRow) {
+  let o = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderRow.id);
+  if (!o) fail(404, 'Pedido no encontrado');
+  if (o.payment_method !== 'spei') fail(400, 'Este pedido no usa SPEI');
+  if (o.conekta_order_id && o.spei_clabe) return { spei: speiPublic(o), first: false };
+  if (speiInflight.has(o.id)) return speiInflight.get(o.id);
+  const job = (async () => {
+    o = db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id);
+    if (o.conekta_order_id && o.spei_clabe) return { spei: speiPublic(o), first: false };
+    if (o.status !== 'pendiente_pago') fail(409, 'El pedido ya no está pendiente de pago');
+    if (o.expires_at < Date.now()) fail(409, 'La reserva de tu pedido expiró. Vuelve a hacer tu pedido.');
+    const items = itemsStmt.all(o.id);
+    const payload = {
+      currency: 'MXN',
+      customer_info: { name: o.name, email: o.email, phone: formatConektaPhone(o.phone) },
+      line_items: items.map((it) => ({ name: String(it.name).slice(0, 250), unit_price: it.unit_price, quantity: it.qty })),
+      charges: [{ payment_method: { type: 'spei', expires_at: Math.floor(o.expires_at / 1000) } }],
+      metadata: { order_number: o.number, order_id: String(o.id) },
+    };
+    if (o.shipping > 0) payload.shipping_lines = [{ amount: o.shipping, carrier: 'Envío' }];
+    if (o.address) {
+      try {
+        const a = JSON.parse(o.address);
+        payload.shipping_contact = {
+          phone: formatConektaPhone(o.phone),
+          receiver: o.name,
+          address: { street1: a.street, postal_code: a.cp, country: 'MX', city: a.city, state: a.state },
+        };
+      } catch { /* sin dirección válida */ }
+    }
+    const created = await conektaCall((c) => c.createOrder(payload));
+    const info = extractSpeiMethod(created);
+    if (!info || !created.id || !info.clabe) fail(502, 'Conekta no devolvió la CLABE. Intenta de nuevo.');
+    const expMs = info.expiresAt ? info.expiresAt * 1000 : o.expires_at;
+    const u = db.prepare('UPDATE orders SET conekta_order_id = ?, spei_clabe = ?, spei_bank = ?, spei_expires_at = ? WHERE id = ? AND conekta_order_id IS NULL')
+      .run(created.id, info.clabe, info.bank || '', expMs, o.id);
+    if (!u.changes) {
+      o = db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id);
+      return { spei: speiPublic(o), first: false };
+    }
+    o = db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id);
+    return { spei: speiPublic(o), first: true };
+  })().finally(() => speiInflight.delete(o.id));
+  speiInflight.set(o.id, job);
+  return job;
 }
 
 function confirmPaid(orderId, { captureId = null, by = 'sistema' } = {}) {
@@ -685,6 +779,7 @@ function orderPublic(o, reveal) {
     tracking: o.tracking || '', shipCarrier: o.ship_carrier || '', items, needsShipping: items.some((i) => isPhysical(i.type)),
     expiresAt: o.status === 'pendiente_pago' && o.expires_at ? new Date(o.expires_at).toISOString() : null,
     bankInfo: o.payment_method === 'manual' && o.status === 'pendiente_pago' ? cfg.bankInfo : '',
+    spei: speiPublic(o),
     whatsapp: cfg.whatsapp,
   };
 }
@@ -731,6 +826,36 @@ async function sendDeliveryEmail(orderId, force = false) {
   lines.push(fillTpl(tx.signature, vars));
   await sendMail(smtp, { to: o.email, subject: `${cfg.storeName} - Pedido ${o.number} (${pub.statusLabel})`, text: lines.join('\n') });
   db.prepare('UPDATE orders SET email_sent_at = ? WHERE id = ?').run(nowIso(), o.id);
+  return { sent: true };
+}
+
+async function sendSpeiInstructionsEmail(orderId) {
+  const smtp = smtpConfig();
+  if (!smtp) return { sent: false, reason: 'SMTP no configurado' };
+  const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  if (!o || o.payment_method !== 'spei' || o.status !== 'pendiente_pago' || !o.spei_clabe) return { sent: false, reason: 'Sin CLABE pendiente' };
+  const cfg = storeConfig();
+  const tx = emailTexts(), vars = { nombre: o.name, tienda: cfg.storeName, pedido: o.number };
+  const exp = o.spei_expires_at || o.expires_at;
+  const expTxt = exp ? new Date(exp).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const lines = [
+    fillTpl(tx.intro, vars),
+    '',
+    `Pedido: ${o.number}`,
+    'Estado: Pendiente de pago (transferencia SPEI)',
+    `Total a pagar (monto exacto): $${(o.total / 100).toFixed(2)} MXN`,
+    '',
+    'Datos para tu transferencia SPEI:',
+    o.spei_bank ? `Banco: ${o.spei_bank}` : '',
+    `CLABE: ${o.spei_clabe}`,
+    'Paga el monto exacto desde tu banca en línea. Al recibirlo, confirmamos tu pedido automáticamente.',
+    expTxt ? `La CLABE y la reserva vencen el ${expTxt}.` : '',
+    '',
+    `Ver tu pedido: ${statusLink(o)}`,
+    '',
+    fillTpl(tx.signature, vars),
+  ].filter((l, i, a) => l !== '' || a[i - 1] !== '');
+  await sendMail(smtp, { to: o.email, subject: `${cfg.storeName} - Datos SPEI de tu pedido ${o.number}`, text: lines.join('\n') });
   return { sent: true };
 }
 
@@ -821,7 +946,8 @@ route('GET', '/api/config', () => {
   const c = storeConfig(), pp = paypalConfig();
   return { ...c, currency: 'MXN', paypal: { enabled: pp.enabled, clientId: PAYPAL_MOCK ? 'test' : pp.enabled ? pp.clientId : '', mode: pp.mode, mock: PAYPAL_MOCK },
     stripe: { enabled: stripeEnabled() },
-    estados: ESTADOS, reservaMinutos: RESERVA_MIN, tidio: TIDIO_KEY };
+    conekta: { enabled: conektaEnabled() },
+    estados: ESTADOS, reservaMinutos: RESERVA_MIN, reservaManualHoras: RESERVA_MANUAL_H, tidio: TIDIO_KEY };
 });
 route('GET', '/api/productos', ({ query }) => ({ productos: listProducts(query) }));
 route('GET', '/api/productos/:id', ({ params }) => {
@@ -829,7 +955,21 @@ route('GET', '/api/productos/:id', ({ params }) => {
   if (!p) fail(404, 'Producto no encontrado');
   return { producto: productOut(p) };
 });
-route('POST', '/api/pedidos', ({ body, ip }) => { rateLimit('order:' + ip, IS_TEST ? 1000 : 30, 10 * 60e3); return createOrder(body); });
+route('POST', '/api/pedidos', async ({ body, ip }) => {
+  rateLimit('order:' + ip, IS_TEST ? 1000 : 30, 10 * 60e3);
+  const res = createOrder(body);
+  if (res.paymentMethod !== 'spei') return res;
+  try {
+    const o = db.prepare('SELECT * FROM orders WHERE number = ?').get(res.number);
+    const att = await attachSpeiPayment(o);
+    if (att.first) setImmediate(() => sendSpeiInstructionsEmail(o.id).catch((e) => console.error('[email]', e.message)));
+    return { ...res, spei: att.spei };
+  } catch (e) {
+    if (e instanceof HttpError && e.status >= 500) console.error('[conekta]', e.message);
+    else console.error('[conekta]', e && e.message);
+    return res;
+  }
+});
 route('GET', '/api/pedidos/estado', ({ query }) => ({ pedido: orderPublic(orderByToken(query.n, query.t), true) }));
 route('POST', '/api/pedidos/consulta', ({ body, ip }) => {
   rateLimit('consulta:' + ip, 20, 10 * 60e3);
@@ -935,6 +1075,64 @@ route('POST', '/api/stripe/webhook', async ({ rawBody, req }) => {
   }
   return { received: true };
 }, { raw: true });
+
+function conektaOrderFromEvent(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  if (obj.object === 'order' && obj.id) return db.prepare('SELECT * FROM orders WHERE conekta_order_id = ?').get(obj.id) || null;
+  if (obj.order_id) return db.prepare('SELECT * FROM orders WHERE conekta_order_id = ?').get(obj.order_id) || null;
+  return null;
+}
+function handleConektaPaid(obj) {
+  const o = conektaOrderFromEvent(obj);
+  if (!o || o.paid_at) return;
+  const currency = String(obj.currency || '').toUpperCase();
+  const amount = Number(obj.amount);
+  if (currency !== 'MXN' || amount !== o.total) {
+    db.prepare("UPDATE orders SET notes = COALESCE(notes || char(10), '') || ? WHERE id = ?")
+      .run(`Conekta webhook rechazado: monto o moneda distintos (${nowIso()})`, o.id);
+    return;
+  }
+  confirmPaid(o.id, { by: 'Conekta (webhook)' });
+}
+function handleConektaExpired(obj) {
+  const o = conektaOrderFromEvent(obj);
+  if (!o || o.paid_at || o.status !== 'pendiente_pago') return;
+  tx(() => {
+    const cur = db.prepare('SELECT * FROM orders WHERE id = ?').get(o.id);
+    if (!cur || cur.paid_at || cur.status !== 'pendiente_pago') return;
+    releaseReservation(cur);
+    db.prepare("UPDATE orders SET status = 'expirado' WHERE id = ?").run(cur.id);
+  });
+}
+function handleConektaRefunded(obj) {
+  const o = conektaOrderFromEvent(obj);
+  if (!o) return;
+  db.prepare("UPDATE orders SET notes = COALESCE(notes || char(10), '') || ? WHERE id = ?")
+    .run(`Conekta avisó un reembolso (${nowIso()}). Revísalo en el panel de Conekta y márcalo aquí si aplica.`, o.id);
+}
+
+route('POST', '/api/conekta/crear', async ({ body }) => {
+  const o = orderByToken(body.number, body.token);
+  if (o.payment_method !== 'spei') fail(400, 'Este pedido no usa SPEI');
+  if (o.status !== 'pendiente_pago') fail(409, 'El pedido ya no está pendiente de pago');
+  if (o.expires_at < Date.now()) fail(409, 'La reserva de tu pedido expiró. Vuelve a hacer tu pedido.');
+  const att = await attachSpeiPayment(o);
+  if (att.first) setImmediate(() => sendSpeiInstructionsEmail(o.id).catch((e) => console.error('[email]', e.message)));
+  if (!att.spei || !att.spei.clabe) fail(502, 'No se pudo obtener la CLABE. Intenta de nuevo.');
+  return { ok: true, spei: att.spei };
+});
+route('POST', '/api/conekta/webhook', async ({ rawBody, req }) => {
+  if (!CONEKTA_WEBHOOK_PUBLIC_KEY) fail(503, 'CONEKTA_WEBHOOK_PUBLIC_KEY no configurado');
+  const digest = req.headers['digest'] || req.headers['Digest'];
+  if (!verifyWebhookSignature(rawBody, digest, CONEKTA_WEBHOOK_PUBLIC_KEY)) fail(400, 'Firma inválida');
+  let ev; try { ev = JSON.parse(rawBody.toString('utf8')); } catch { fail(400, 'JSON inválido'); }
+  const type = ev && ev.type;
+  const obj = ev && ev.data && ev.data.object;
+  if (type === 'order.paid') handleConektaPaid(obj);
+  else if (type === 'order.expired' || type === 'charge.expired') handleConektaExpired(obj);
+  else if (type === 'order.refunded' || type === 'charge.refunded') handleConektaRefunded(obj);
+  return { received: true };
+}, { raw: true, skipOrigin: true });
 route('POST', '/api/contacto', ({ body, ip }) => {
   rateLimit('contact:' + ip, IS_TEST ? 100 : 5, 10 * 60e3);
   const name = str(body.name, { min: 2, max: 100, name: 'Nombre' });
@@ -1216,7 +1414,9 @@ function orderAdmin(o) {
     codes: it.type === 'esim' ? codesFor(it.id, false) : [] }));
   return { id: o.id, number: o.number, status: o.status, statusLabel: STATUS_LABEL[o.status] || o.status, name: o.name, email: o.email, phone: o.phone,
     address: o.address ? JSON.parse(o.address) : null, subtotal: o.subtotal, shipping: o.shipping, total: o.total, paymentMethod: o.payment_method,
-    paypalOrderId: o.paypal_order_id || '', paypalCaptureId: o.paypal_capture_id || '', tracking: o.tracking || '', shipCarrier: o.ship_carrier || '',
+    paypalOrderId: o.paypal_order_id || '', paypalCaptureId: o.paypal_capture_id || '',
+    conektaOrderId: o.conekta_order_id || '', speiClabe: o.spei_clabe || '', speiBank: o.spei_bank || '',
+    tracking: o.tracking || '', shipCarrier: o.ship_carrier || '',
     notes: o.notes || '', refundNote: o.refund_note || '', createdAt: o.created_at, paidAt: o.paid_at, emailSentAt: o.email_sent_at,
     expiresAt: o.expires_at ? new Date(o.expires_at).toISOString() : null, items, next: NEXT[o.status] || [] };
 }
@@ -1233,7 +1433,7 @@ const getOrder = (id) => db.prepare('SELECT * FROM orders WHERE id = ?').get(id)
 admin('GET', '/api/admin/pedidos/:id', ({ params }) => ({ pedido: orderAdmin(getOrder(params.id)), enlace: statusLink(getOrder(params.id)) }));
 admin('POST', '/api/admin/pedidos/:id/confirmar', ({ params, session }) => {
   const o = getOrder(params.id);
-  if (o.payment_method !== 'manual' && !o.paid_at) fail(400, 'Los pedidos PayPal y Stripe se confirman automáticamente al pagar');
+  if (o.payment_method !== 'manual' && !o.paid_at) fail(400, 'Los pedidos PayPal, Stripe y SPEI se confirman automáticamente al pagar');
   const r = confirmPaid(o.id, { by: 'admin ' + session.username });
   const filled = r.already ? fillMissingCodes(o.id) : 0;
   return { ok: true, already: r.already, filled, problems: r.problems || [], pedido: orderAdmin(getOrder(o.id)) };
@@ -1860,7 +2060,7 @@ async function handleApi(req, res, url) {
   const ctx = { req, res, url, params, query: Object.fromEntries(url.searchParams), body: {}, ip: clientIp(req), session: null };
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     const origin = req.headers.origin;
-    if (origin && origin !== 'null') {
+    if (!r.opts.skipOrigin && origin && origin !== 'null') {
       let oh = '';
       try { oh = new URL(origin).host; } catch { /* */ }
       if (oh !== req.headers.host && oh !== req.headers['x-forwarded-host']) fail(403, 'Origen no permitido');
@@ -1911,7 +2111,7 @@ server.listen(PORT, HOST, () => {
   const a = server.address();
   const pp = paypalConfig();
   console.log(`[tienda] Escuchando en http://${HOST}:${a.port}  (DATA_DIR=${DATA_DIR})`);
-  console.log(`[tienda] PayPal: ${PAYPAL_MOCK ? 'SIMULADO (solo pruebas)' : pp.enabled ? 'activo (' + pp.mode + ')' : 'no configurado'} | Correo SMTP: ${smtpConfig() ? 'configurado' : 'no configurado (opcional)'} | Telegram: ${telegramEnabled() ? 'configurado' : 'no configurado (opcional)'} | Tidio: ${TIDIO_KEY ? 'activo' : 'no configurado (opcional)'}`);
+  console.log(`[tienda] PayPal: ${PAYPAL_MOCK ? 'SIMULADO (solo pruebas)' : pp.enabled ? 'activo (' + pp.mode + ')' : 'no configurado'} | Stripe: ${stripeEnabled() ? 'activo' : 'no configurado'} | Conekta SPEI: ${CONEKTA_MOCK ? 'SIMULADO (solo pruebas)' : conektaEnabled() ? 'activo' : 'no configurado'} | Correo SMTP: ${smtpConfig() ? 'configurado' : 'no configurado (opcional)'} | Telegram: ${telegramEnabled() ? 'configurado' : 'no configurado (opcional)'} | Tidio: ${TIDIO_KEY ? 'activo' : 'no configurado (opcional)'}`);
 });
 function shutdown() {
   console.log('[tienda] Cerrando...');
