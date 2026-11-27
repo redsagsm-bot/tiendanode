@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
+const crypto = require('node:crypto');
 
 const ROOT = path.join(__dirname, '..');
 let passed = 0, failed = 0, skipped = 0;
@@ -105,6 +106,8 @@ async function main() {
   r = await pub.get('/api/config');
   ok(r.status === 200 && r.json.currency === 'MXN' && r.json.paypal.enabled && r.json.paypal.mock, '/api/config: MXN y PayPal simulado en modo test');
   ok(!/secret/i.test(JSON.stringify(r.json.paypal).replace('"mock"', '')) && r.json.shippingCost === 12000, '/api/config no expone el secret; envío configurable (SHIPPING_COST=120)');
+  ok(r.json.conekta && r.json.conekta.enabled === false, '/api/config: Conekta desactivado sin llave ni mock');
+  ok(!JSON.stringify(r.json).includes('BEGIN PUBLIC KEY') && !/key_/.test(JSON.stringify(r.json)), '/api/config no expone llaves de Conekta');
   ok(Array.isArray(r.json.estados) && r.json.estados.length === 32, '/api/config incluye los 32 estados');
 
   section('Cabeceras de seguridad y archivos estáticos');
@@ -343,6 +346,8 @@ async function main() {
   ok(r.status === 400, 'Cantidad > 10 → 400');
   r = await pub.post('/api/pedidos', { items: [{ id: esim.id, qty: 1 }], customer: CUSTOMER, payment: 'bitcoin' });
   ok(r.status === 400, 'Método de pago inválido → 400');
+  r = await pub.post('/api/pedidos', { items: [{ id: esim.id, qty: 1 }], customer: CUSTOMER, payment: 'spei' });
+  ok(r.status === 400, 'SPEI no disponible si Conekta no está configurado → 400');
 
   section('PayPal (simulado): pago, verificación y entrega');
   r = await pub.post('/api/pedidos', { items: [{ id: newId, qty: 2 }], customer: CUSTOMER, payment: 'paypal', total: 1 });
@@ -553,13 +558,103 @@ async function main() {
   r = await c.post(`/api/admin/pedidos/${ocid}/confirmar`, {});
   ok(r.status === 200 && (r.json.pedido.status === 'pagado') && r.json.pedido.items.find((i) => i.type === 'esim').codes.length === 3, 'Pago tardío confirmado retoma stock y asigna códigos', r.json.pedido && r.json.pedido.status);
 
+  section('Conekta SPEI (simulado): CLABE, webhook y confirmación');
+  const speiKeys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const speiPub = speiKeys.publicKey.export({ type: 'spki', format: 'pem' });
+  const speiPriv = speiKeys.privateKey;
+  const signDigest = (body) => {
+    const raw = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body), 'utf8');
+    return { raw, digest: crypto.sign('sha256', raw, speiPriv).toString('base64') };
+  };
+  const K = await startServer({
+    NODE_ENV: 'test', CONEKTA_MOCK: '1', CONEKTA_WEBHOOK_PUBLIC_KEY: speiPub,
+    ADMIN_USER: 'dueno', ADMIN_PASSWORD: ADMIN_PW, SHIPPING_COST: '99',
+  }, 'K');
+  const kpub = client(K.base);
+  const kadm = client(K.base);
+  r = await kadm.login('dueno', ADMIN_PW);
+  ok(r.status === 200, 'Login admin en servidor Conekta');
+  r = await kpub.get('/api/config');
+  ok(r.status === 200 && r.json.conekta && r.json.conekta.enabled === true, '/api/config: Conekta activo en mock');
+  ok(!JSON.stringify(r.json).includes('BEGIN PUBLIC KEY') && !JSON.stringify(r.json).includes(speiPub.slice(0, 20)), '/api/config no expone la PEM del webhook');
+  r = await kadm.post('/api/admin/productos', { name: 'eSIM SPEI 10', carrier: 'Telcel', type: 'esim', price: '10', dataAmount: '1 GB', validityDays: 7, active: true });
+  const cheapId = r.json.producto.id;
+  r = await kadm.post('/api/admin/inventario', { product_id: cheapId, code: 'SPEI-CHEAP-0001' });
+  r = await kpub.post('/api/pedidos', { items: [{ id: cheapId, qty: 1 }], customer: CUSTOMER, payment: 'spei' });
+  ok(r.status === 400 && /15/.test(r.json.error || ''), 'Total SPEI menor a $15 → 400', r.json);
+  r = await kadm.post('/api/admin/productos', { name: 'eSIM SPEI 15', carrier: 'Telcel', type: 'esim', price: '15', dataAmount: '1 GB', validityDays: 7, active: true });
+  const speiProd = r.json.producto.id;
+  await kadm.post('/api/admin/inventario', { product_id: speiProd, bulk: 'SPEI-OK-0001\nSPEI-OK-0002\nSPEI-OK-0003' });
+  r = await kpub.post('/api/pedidos', { items: [{ id: speiProd, qty: 1 }], customer: CUSTOMER, payment: 'spei' });
+  ok(r.status === 200 && r.json.paymentMethod === 'spei' && r.json.spei && /^\d{18}$/.test(r.json.spei.clabe), 'Crear pedido SPEI devuelve CLABE de 18 dígitos', r.json);
+  const sOrd = r.json;
+  const clabe1 = sOrd.spei.clabe;
+  r = await kpub.get(`/api/pedidos/estado?n=${sOrd.number}&t=${sOrd.token}`);
+  ok(r.json.pedido.status === 'pendiente_pago' && r.json.pedido.spei.clabe === clabe1 && r.json.pedido.items[0].codes.length === 0, 'Estado pendiente muestra CLABE y no revela códigos');
+  r = await kpub.post('/api/conekta/crear', { number: sOrd.number, token: sOrd.token });
+  ok(r.status === 200 && r.json.spei.clabe === clabe1, 'POST /api/conekta/crear es idempotente');
+  const kPed = (await kadm.get('/api/admin/pedidos?q=' + sOrd.number)).json.pedidos[0];
+  r = await kadm.post(`/api/admin/pedidos/${kPed.id}/confirmar`, {});
+  ok(r.status === 400, 'Admin no confirma un SPEI impago');
+
+  const evPaid = {
+    livemode: false,
+    id: 'evt_test_paid_1',
+    object: 'event',
+    type: 'order.paid',
+    data: { object: { object: 'order', id: 'ord_does_not_exist', currency: 'MXN', amount: 1500, payment_status: 'paid' } },
+  };
+  r = await kpub.post('/api/conekta/webhook', evPaid, { noCsrf: true });
+  ok(r.status === 400, 'Webhook sin firma → 400');
+  let signed = signDigest(evPaid);
+  r = await fetch(K.base + '/api/conekta/webhook', { method: 'POST', headers: { Digest: 'A'.repeat(344), 'Content-Type': 'application/json' }, body: signed.raw });
+  ok(r.status === 400, 'Webhook con firma inválida → 400', r.status);
+
+  const kDetail = (await kadm.get('/api/admin/pedidos/' + kPed.id)).json.pedido;
+  evPaid.data.object.id = kDetail.conektaOrderId;
+  evPaid.data.object.amount = 9999;
+  signed = signDigest(evPaid);
+  r = await fetch(K.base + '/api/conekta/webhook', { method: 'POST', headers: { Digest: signed.digest, 'Content-Type': 'application/json', Origin: 'https://evil.example' }, body: signed.raw });
+  ok(r.status === 200, 'Webhook con firma válida acepta Origin externo (skipOrigin)');
+  r = await kpub.get(`/api/pedidos/estado?n=${sOrd.number}&t=${sOrd.token}`);
+  ok(r.json.pedido.status === 'pendiente_pago', 'Monto distinto no confirma el pedido');
+
+  evPaid.data.object.amount = 1500;
+  evPaid.id = 'evt_test_paid_2';
+  signed = signDigest(evPaid);
+  r = await fetch(K.base + '/api/conekta/webhook', { method: 'POST', headers: { digest: signed.digest, 'Content-Type': 'application/json' }, body: signed.raw });
+  ok(r.status === 200 && (await r.json()).received === true, 'Webhook order.paid con monto correcto → 200');
+  r = await kpub.get(`/api/pedidos/estado?n=${sOrd.number}&t=${sOrd.token}`);
+  ok(r.json.pedido.status === 'entregado' && r.json.pedido.items[0].codes.length === 1 && r.json.pedido.items[0].codes[0].code === 'SPEI-OK-0001', 'Pedido SPEI entregado con código tras order.paid', r.json.pedido);
+  const again = await fetch(K.base + '/api/conekta/webhook', { method: 'POST', headers: { Digest: signed.digest, 'Content-Type': 'application/json' }, body: signed.raw });
+  ok(again.status === 200, 'Webhook order.paid es idempotente');
+  r = await kpub.get(`/api/pedidos/estado?n=${sOrd.number}&t=${sOrd.token}`);
+  ok(r.json.pedido.status === 'entregado' && r.json.pedido.items[0].codes.length === 1, 'Segundo webhook no duplica códigos');
+
+  r = await kpub.post('/api/pedidos', { items: [{ id: speiProd, qty: 1 }], customer: { ...CUSTOMER, email: 'spei2@ejemplo.com' }, payment: 'spei' });
+  ok(r.status === 200 && r.json.spei && r.json.spei.clabe, 'Segundo pedido SPEI');
+  const sOrd2 = r.json;
+  const d2 = (await kadm.get('/api/admin/pedidos?q=' + sOrd2.number)).json.pedidos[0];
+  const det2 = (await kadm.get('/api/admin/pedidos/' + d2.id)).json.pedido;
+  const evExp = {
+    livemode: false, id: 'evt_test_exp', object: 'event', type: 'order.expired',
+    data: { object: { object: 'order', id: det2.conektaOrderId, currency: 'MXN', amount: 1500 } },
+  };
+  signed = signDigest(evExp);
+  r = await fetch(K.base + '/api/conekta/webhook', { method: 'POST', headers: { Digest: signed.digest, 'Content-Type': 'application/json' }, body: signed.raw });
+  ok(r.status === 200, 'Webhook order.expired → 200');
+  r = await kpub.get(`/api/pedidos/estado?n=${sOrd2.number}&t=${sOrd2.token}`);
+  ok(r.json.pedido.status === 'expirado', 'order.expired marca el pedido como expirado', r.json.pedido.status);
+
   section('PAYPAL_MOCK no se activa fuera de NODE_ENV=test');
-  const D = await startServer({ NODE_ENV: 'production', PAYPAL_MOCK: '1', ADMIN_USER: 'x', ADMIN_PASSWORD: 'ClaveLarga12345' }, 'D');
+  const D = await startServer({ NODE_ENV: 'production', PAYPAL_MOCK: '1', CONEKTA_MOCK: '1', ADMIN_USER: 'x', ADMIN_PASSWORD: 'ClaveLarga12345' }, 'D');
   r = await client(D.base).get('/api/config');
   ok(r.json.paypal.mock === false && r.json.paypal.enabled === false, 'PAYPAL_MOCK=1 ignorado en producción');
+  ok(r.json.conekta && r.json.conekta.enabled === false, 'CONEKTA_MOCK=1 ignorado en producción');
   r = await client(D.base).post('/api/test/paypal-tamper', { id: 'x', value: '1' });
   ok(r.status === 404, 'Ruta de prueba inexistente en producción');
   ok(/PAYPAL_MOCK=1 ignorado/.test(D.log()), 'Aviso en logs');
+  ok(/CONEKTA_MOCK=1 ignorado/.test(D.log()), 'Aviso CONEKTA_MOCK en logs');
   r = await fetch(D.base + '/health');
   ok(r.status === 200, 'Arranca sin SMTP ni PayPal (config opcional)');
 
