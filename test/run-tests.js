@@ -227,9 +227,9 @@ async function main() {
   r = await pub.get('/devoluciones.html');
   ok(/<title>Política de devoluciones \| eSIMGO\.MX<\/title>/.test(r.text) && /rel="canonical" href="https:\/\/www\.esimgo\.mx\/devoluciones\.html"/.test(r.text), 'Devoluciones: título y canonical');
   r = await pub.get('/aviso-privacidad.html');
-  ok(/Plantilla sin valor legal/.test(r.text) && /\[COMPLETA:/.test(r.text), 'Aviso de privacidad es plantilla');
+  ok(/<title>Aviso de privacidad \| eSIMGO\.MX<\/title>/.test(r.text) && /HEJM800306DK1/.test(r.text) && /Valles de Anáhuac/.test(r.text) && /27 de noviembre de 2026/.test(r.text) && !/Plantilla sin valor legal/.test(r.text) && !/\[COMPLETA:/.test(r.text) && /href="\/guias">Guías<\/a>/.test(r.text), 'Aviso de privacidad publicado con datos del responsable');
   r = await pub.get('/terminos.html');
-  ok(/Plantilla sin valor legal/.test(r.text) && /\[COMPLETA:/.test(r.text), 'Términos son plantilla');
+  ok(/<title>Términos y condiciones \| eSIMGO\.MX<\/title>/.test(r.text) && /HEJM800306DK1/.test(r.text) && /Valles de Anáhuac/.test(r.text) && /tribunales competentes de Tamaulipas/.test(r.text) && !/Plantilla sin valor legal/.test(r.text) && !/\[COMPLETA:/.test(r.text), 'Términos publicados con datos del vendedor');
 
   section('Catálogo y filtros');
   r = await pub.get('/api/productos');
