@@ -59,6 +59,7 @@ docker build -t tienda . && docker run -p 3000:3000 -v tienda-data:/data tienda
 | `CONEKTA_PRIVATE_KEY`, `CONEKTA_WEBHOOK_PUBLIC_KEY` | Transferencia SPEI por Conekta (llave privada `key_...` y PEM pública del webhook). Webhook: `https://www.esimgo.mx/api/conekta/webhook`, evento principal `order.paid`. Opcional: `CONEKTA_API_VERSION` (por defecto `2.3.0`) | — |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Correo de confirmación (opcional) | puerto `587` |
 | `TIDIO_KEY` | Public Key de Tidio para mostrar el chat en la tienda (opcional) | — |
+| `GTM_ID` | Contenedor de Google Tag Manager en las páginas públicas (no en `/admin`). `0` o `off` lo desactiva | `GTM-52RD5TBC` |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Avisos al dueño por Telegram: pedido nuevo, pago confirmado, stock bajo (opcional) | — |
 | `VISIT_NOTIFY_COOLDOWN_MIN` | Minutos entre avisos de visita por la misma IP (0 = avisar todas las visitas) | 10 |
 | `PAYPAL_MOCK=1` | PayPal simulado. **Solo funciona con `NODE_ENV=test`** | — |
