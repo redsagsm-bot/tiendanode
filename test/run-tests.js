@@ -559,6 +559,36 @@ async function main() {
   ok(r.status === 200 && (r.json.pedido.status === 'pagado') && r.json.pedido.items.find((i) => i.type === 'esim').codes.length === 3, 'Pago tardío confirmado retoma stock y asigna códigos', r.json.pedido && r.json.pedido.status);
 
   section('Conekta SPEI (simulado): CLABE, webhook y confirmación');
+  const { buildSpeiOrderPayload, formatConektaPhone, DIGITAL_SHIPPING_ADDRESS } = require('../lib/conekta');
+  ok(formatConektaPhone('5512345678') === '+525512345678', 'Teléfono de 10 dígitos se formatea con +52');
+  ok(formatConektaPhone('+52 55 1234 5678') === '+525512345678', 'Teléfono con +52 y espacios se normaliza');
+  const unitEsim = buildSpeiOrderPayload({
+    name: CUSTOMER.name, email: CUSTOMER.email, phone: CUSTOMER.phone,
+    items: [{ name: 'eSIM SPEI 15', unit_price: 1500, qty: 1 }],
+    shipping: 0, address: null, expiresAtMs: Date.now() + 48 * 3600 * 1000,
+    metadata: { order_number: 'TEST-1', order_id: '1' },
+  });
+  ok(unitEsim.shipping_lines[0].amount === 0
+    && unitEsim.shipping_contact
+    && unitEsim.shipping_contact.address.street1 === DIGITAL_SHIPPING_ADDRESS.street1
+    && unitEsim.shipping_contact.address.postal_code === '06600'
+    && unitEsim.shipping_contact.address.country === 'MX'
+    && unitEsim.customer_info.phone === '+525512345678'
+    && unitEsim.line_items[0].quantity === 1
+    && unitEsim.charges[0].payment_method.type === 'spei'
+    && typeof unitEsim.charges[0].payment_method.expires_at === 'number',
+    'Payload eSIM incluye shipping_contact digital y shipping_lines 0', unitEsim);
+  const unitSim = buildSpeiOrderPayload({
+    name: CUSTOMER.name, email: CUSTOMER.email, phone: CUSTOMER.phone,
+    items: [{ name: 'Chip SPEI', unit_price: 1500, qty: 1 }],
+    shipping: 9900, address: ADDRESS, expiresAtMs: Date.now() + 48 * 3600 * 1000,
+    metadata: { order_number: 'TEST-2', order_id: '2' },
+  });
+  ok(unitSim.shipping_lines[0].amount === 9900
+    && unitSim.shipping_contact.address.street1 === ADDRESS.street
+    && unitSim.shipping_contact.address.postal_code === ADDRESS.cp
+    && unitSim.shipping_contact.address.city === ADDRESS.city,
+    'Payload físico usa la dirección del pedido', unitSim);
   const speiKeys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const speiPub = speiKeys.publicKey.export({ type: 'spki', format: 'pem' });
   const speiPriv = speiKeys.privateKey;
@@ -591,6 +621,8 @@ async function main() {
   const lastEsim = await kpub.get('/api/test/conekta-last');
   const slEsim = lastEsim.json && lastEsim.json.payload && lastEsim.json.payload.shipping_lines;
   ok(lastEsim.status === 200 && Array.isArray(slEsim) && slEsim[0] && slEsim[0].amount === 0, 'Pedido eSIM SPEI envía shipping_lines con monto 0', lastEsim.json);
+  const scEsim = lastEsim.json.payload && lastEsim.json.payload.shipping_contact;
+  ok(scEsim && scEsim.address && scEsim.address.country === 'MX' && scEsim.address.postal_code === '06600' && scEsim.address.street1 === DIGITAL_SHIPPING_ADDRESS.street1, 'Pedido eSIM SPEI envía shipping_contact digital', lastEsim.json);
   r = await kadm.post('/api/admin/productos', { name: 'Chip SPEI', carrier: 'Telcel', type: 'sim', price: '15', stock: 3, active: true });
   const speiSim = r.json.producto.id;
   const rSim = await kpub.post('/api/pedidos', { items: [{ id: speiSim, qty: 1 }], customer: { ...CUSTOMER, email: 'speisim@ejemplo.com' }, address: ADDRESS, payment: 'spei' });
@@ -598,6 +630,8 @@ async function main() {
   const lastSim = await kpub.get('/api/test/conekta-last');
   const slSim = lastSim.json && lastSim.json.payload && lastSim.json.payload.shipping_lines;
   ok(lastSim.status === 200 && Array.isArray(slSim) && slSim[0] && slSim[0].amount === 9900, 'Pedido físico SPEI envía shipping_lines con el costo de envío', lastSim.json);
+  const scSim = lastSim.json.payload && lastSim.json.payload.shipping_contact;
+  ok(scSim && scSim.address && scSim.address.street1 === ADDRESS.street && scSim.address.postal_code === ADDRESS.cp, 'Pedido físico SPEI envía shipping_contact con la dirección', lastSim.json);
   const clabe1 = sOrd.spei.clabe;
   r = await kpub.get(`/api/pedidos/estado?n=${sOrd.number}&t=${sOrd.token}`);
   ok(r.json.pedido.status === 'pendiente_pago' && r.json.pedido.spei.clabe === clabe1 && r.json.pedido.items[0].codes.length === 0, 'Estado pendiente muestra CLABE y no revela códigos');

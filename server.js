@@ -12,7 +12,7 @@ const os = require('node:os');
 const { sendMail } = require('./lib/smtp');
 const { createPayPalClient, createMockPayPalClient } = require('./lib/paypal');
 const { createStripeClient, verifyWebhook } = require('./lib/stripe');
-const { createConektaClient, createMockConektaClient, extractSpeiMethod, verifyWebhookSignature, normalizePem } = require('./lib/conekta');
+const { createConektaClient, createMockConektaClient, extractSpeiMethod, verifyWebhookSignature, normalizePem, buildSpeiOrderPayload } = require('./lib/conekta');
 const { imageSizeFile, optimizeFile } = require('./lib/images');
 
 // ---------------------------------------------------------------- Config
@@ -228,13 +228,6 @@ async function conektaCall(fn) {
     logConektaError(e);
     fail(502, 'No se pudo comunicar con Conekta. Intenta de nuevo.');
   }
-}
-function formatConektaPhone(phone) {
-  const d = String(phone || '').replace(/\D/g, '');
-  if (d.startsWith('52') && d.length >= 12) return '+' + d;
-  if (d.length === 10) return '+52' + d;
-  if (String(phone || '').trim().startsWith('+') && d.length >= 10) return '+' + d;
-  return '+52' + d.slice(-10);
 }
 function paypalConfig() {
   const fromEnv = !!(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_SECRET);
@@ -664,25 +657,13 @@ async function attachSpeiPayment(orderRow) {
     if (o.status !== 'pendiente_pago') fail(409, 'El pedido ya no está pendiente de pago');
     if (o.expires_at < Date.now()) fail(409, 'La reserva de tu pedido expiró. Vuelve a hacer tu pedido.');
     const items = itemsStmt.all(o.id);
-    const payload = {
-      currency: 'MXN',
-      customer_info: { name: o.name, email: o.email, phone: formatConektaPhone(o.phone) },
-      line_items: items.map((it) => ({ name: String(it.name).slice(0, 250), unit_price: it.unit_price, quantity: it.qty })),
-      charges: [{ payment_method: { type: 'spei', expires_at: Math.floor(o.expires_at / 1000) } }],
+    let address = null;
+    if (o.address) { try { address = JSON.parse(o.address); } catch { address = null; } }
+    const payload = buildSpeiOrderPayload({
+      name: o.name, email: o.email, phone: o.phone, items,
+      shipping: o.shipping || 0, address, expiresAtMs: o.expires_at,
       metadata: { order_number: o.number, order_id: String(o.id) },
-    };
-    // Conekta exige shipping_lines aunque el envío sea $0 (p. ej. eSIM).
-    payload.shipping_lines = [{ amount: o.shipping || 0, carrier: 'Envío' }];
-    if (o.address) {
-      try {
-        const a = JSON.parse(o.address);
-        payload.shipping_contact = {
-          phone: formatConektaPhone(o.phone),
-          receiver: o.name,
-          address: { street1: a.street, postal_code: a.cp, country: 'MX', city: a.city, state: a.state },
-        };
-      } catch { /* sin dirección válida */ }
-    }
+    });
     const created = await conektaCall((c) => c.createOrder(payload));
     const info = extractSpeiMethod(created);
     if (!info || !created.id || !info.clabe) fail(502, 'Conekta no devolvió la CLABE. Intenta de nuevo.');
