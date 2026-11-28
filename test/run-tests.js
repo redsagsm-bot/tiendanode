@@ -115,6 +115,8 @@ async function main() {
   const csp = r.headers.get('content-security-policy') || '';
   ok(r.status === 200 && /text\/html/.test(r.headers.get('content-type')), 'GET / sirve index.html');
   ok(/paypal\.com/.test(csp) && /frame-ancestors 'none'/.test(csp) && !/script-src[^;]*unsafe-inline/.test(csp), 'CSP permite PayPal y no permite scripts inline');
+  ok(/googletagmanager\.com/.test(csp) && /google-analytics\.com/.test(csp) && /googleads\.g\.doubleclick\.net/.test(csp) && /www\.google\.com/.test(csp) && /google\.com\.mx/.test(csp), 'CSP permite Google Tag Manager, Analytics y Ads');
+  ok(/script-src[^;]*googletagmanager\.com/.test(csp) && /img-src[^;]*googletagmanager\.com/.test(csp) && /connect-src[^;]*googletagmanager\.com/.test(csp) && /frame-src[^;]*googletagmanager\.com/.test(csp), 'CSP incluye GTM en script-src, img-src, connect-src y frame-src');
   ok(r.headers.get('x-content-type-options') === 'nosniff' && !!r.headers.get('referrer-policy') && !!r.headers.get('x-frame-options'), 'nosniff, Referrer-Policy y X-Frame-Options presentes');
   for (const bad of ['/../server.js', '/%2e%2e/server.js', '/..%2fserver.js', '/css/..%2f..%2fserver.js', '/.env', '/%2eenv', '/js/%00.js', '/admin/../server.js', '/uploads/../store.db', '/uploads/..%2fstore.db', '/uploads/session_secret.txt', '/package.json', '/data/store.db']) {
     const rr = await fetch(A.base + bad);
@@ -133,7 +135,17 @@ async function main() {
   section('Páginas públicas y referencias (JS/CSS/fetch)');
   function htmlSinInlinePeligroso(html) {
     const sinLd = html.replace(/<script\s+type="application\/ld\+json"[\s\S]*?<\/script>/gi, '');
-    return !/<script(?![^>]*\bsrc=)[^>]*>/i.test(sinLd) && !/\son[a-z]+=/i.test(sinLd);
+    const sinPermitidos = sinLd.replace(/<script\s+nonce="[^"]+"[\s\S]*?<\/script>/gi, '');
+    return !/<script(?![^>]*\bsrc=)[^>]*>/i.test(sinPermitidos) && !/\son[a-z]+=/i.test(sinPermitidos);
+  }
+  function htmlConGtm(html, csp, label) {
+    const nonce = (csp.match(/'nonce-([^']+)'/) || [])[1];
+    const headOk = !!(nonce && html.includes('<script nonce="' + nonce + '">') && html.includes('GTM-52RD5TBC') && html.includes("event:'gtm.js'") && /function gtag\(\)/.test(html) && /googletagmanager\.com\/gtm\.js/.test(html));
+    const bodyOk = /<body[^>]*>\s*<noscript>\s*<iframe[^>]+src="https:\/\/www\.googletagmanager\.com\/ns\.html\?id=GTM-52RD5TBC"/i.test(html);
+    const posHead = html.indexOf('googletagmanager.com/gtm.js');
+    const posEndHead = html.toLowerCase().indexOf('</head>');
+    const highInHead = posHead !== -1 && posEndHead !== -1 && posHead < posEndHead;
+    ok(headOk && highInHead && bodyOk, 'GTM en head (con nonce) y noscript tras body en ' + label);
   }
   r = await pub.get('/index.html');
   ok(r.status === 301 && r.headers.get('location') === '/', '/index.html redirige 301 a /');
@@ -161,10 +173,12 @@ async function main() {
     ok(r.status === 200 && /lang="es-MX"/.test(r.text), 'Página ' + label + ' (es-MX)');
     ok(htmlSinInlinePeligroso(r.text), 'Sin scripts ni handlers inline en ' + label);
     ok(!r.text.includes('{tienda}'), 'Sin placeholder {tienda} en ' + label);
+    htmlConGtm(r.text, r.headers.get('content-security-policy') || '', label);
     for (const m of r.text.matchAll(/(?:src|href)="([^"#?]+\.(?:js|css|svg))"/g)) assets.add(new URL(m[1], A.base + path).pathname);
   }
   r = await pub.get('/admin/');
   ok(r.status === 200 && /admin\.js/.test(r.text), 'Página /admin/');
+  ok(!/GTM-52RD5TBC|googletagmanager/.test(r.text), 'Admin no incluye GTM');
   for (const m of r.text.matchAll(/(?:src|href)="([^"#?]+\.(?:js|css|svg))"/g)) assets.add(new URL(m[1], A.base + '/admin/').pathname);
   r = await fetch(A.base + '/admin'); ok(r.redirected || r.url.endsWith('/admin/'), '/admin redirige a /admin/');
   const apiUrls = new Set();
@@ -728,7 +742,7 @@ async function browserTests(A) {
     const msg = JSON.parse(ev.data);
     if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
     if (msg.method === 'Runtime.exceptionThrown') errors.push(msg.params.exceptionDetails.exception ? msg.params.exceptionDetails.exception.description : msg.params.exceptionDetails.text);
-    if (msg.method === 'Log.entryAdded' && msg.params.entry.level === 'error' && !/paypal\.com|favicon|\/api\/admin\/me/.test(msg.params.entry.url || '')) errors.push(msg.params.entry.text + ' ' + (msg.params.entry.url || ''));
+    if (msg.method === 'Log.entryAdded' && msg.params.entry.level === 'error' && !/paypal\.com|favicon|\/api\/admin\/me|googletagmanager|google-analytics|doubleclick|googleadservices|google\.com/.test(msg.params.entry.url || '')) errors.push(msg.params.entry.text + ' ' + (msg.params.entry.url || ''));
     if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') errors.push(msg.params.args.map((a) => a.value || a.description).join(' '));
   };
   const send = (method, params = {}) => new Promise((res) => { const id = ++seq; pending.set(id, res); ws.send(JSON.stringify({ id, method, params })); });
@@ -759,6 +773,12 @@ async function browserTests(A) {
     await evalJs('document.getElementById("mock-pay").click(); true');
     ok(await waitFor('location.pathname.endsWith("gracias.html") && document.querySelectorAll(".code-box").length >= 1', 8000), 'Navegador: tras pagar, la página de gracias muestra el código eSIM');
     ok(await evalJs('document.body.textContent.includes("Entregado")'), 'Navegador: estado "Entregado"');
+    const purchase = await evalJs(`(()=>{const ev=(window.dataLayer||[]).filter(e=>e&&e.event==='purchase');const p=ev[0]||{};return {count:ev.length,id:p.transaction_id,currency:p.currency,value:p.value,once:!!(p.transaction_id&&localStorage.getItem('gtm_purchase_'+p.transaction_id))};})()`);
+    ok(purchase && purchase.count === 1 && purchase.id && purchase.currency === 'MXN' && typeof purchase.value === 'number' && purchase.value > 0 && purchase.once, 'Navegador: dataLayer purchase una vez (pesos, MXN)', purchase);
+    const thanksPath = await evalJs('location.pathname + location.search');
+    await nav(thanksPath);
+    ok(await waitFor('document.querySelectorAll(".code-box").length >= 1', 8000), 'Navegador: gracias recarga el pedido');
+    ok(await evalJs('(window.dataLayer||[]).filter(e=>e&&e.event==="purchase").length===0'), 'Navegador: purchase no se duplica al recargar gracias');
     // Pago manual con SIM física
     const sid2 = await evalJs('fetch("/api/productos?type=sim").then(r=>r.json()).then(j=>j.productos[0].id)');
     await evalJs(`localStorage.setItem("carrito_v1", JSON.stringify([{id:${sid2},qty:1}])); true`);

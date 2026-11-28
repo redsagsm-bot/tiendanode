@@ -859,13 +859,25 @@ async function sendSpeiInstructionsEmail(orderId) {
 const TIDIO_KEY = /^[A-Za-z0-9]{16,64}$/.test(process.env.TIDIO_KEY || '') ? process.env.TIDIO_KEY : '';
 const TD = TIDIO_KEY ? ' https://*.tidio.co https://*.tidio.com' : '';
 const TDW = TIDIO_KEY ? ' wss://*.tidio.co wss://*.tidio.com' : '';
+const GTM_DEFAULT = 'GTM-52RD5TBC';
+function resolveGtmId() {
+  if (process.env.GTM_ID === undefined) return GTM_DEFAULT;
+  const v = String(process.env.GTM_ID).trim();
+  if (!v || v === '0' || /^off$/i.test(v)) return '';
+  if (/^GTM-[A-Z0-9]+$/.test(v)) return v;
+  console.warn('[aviso] GTM_ID ignorado: usa el formato GTM-XXXX o 0 para desactivar.');
+  return '';
+}
+const GTM_ID = resolveGtmId();
+// Dominios de Google Tag Manager, Analytics y Ads (conversiones y píxeles).
+const GTM = GTM_ID ? ' https://www.googletagmanager.com https://*.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://analytics.google.com https://*.analytics.google.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://www.google.com https://www.google.com.mx https://*.google.com https://*.google.com.mx https://*.g.doubleclick.net https://*.doubleclick.net https://stats.g.doubleclick.net' : '';
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' https://www.paypal.com https://*.paypal.com https://*.paypalobjects.com" + TD,
+  "script-src 'self' https://www.paypal.com https://*.paypal.com https://*.paypalobjects.com" + TD + GTM,
   "style-src 'self' 'unsafe-inline'" + TD,
-  "img-src 'self' data: blob: https://*.paypal.com https://*.paypalobjects.com" + TD,
-  "connect-src 'self' https://*.paypal.com https://*.paypalobjects.com" + TD + TDW,
-  'frame-src https://*.paypal.com https://*.paypalobjects.com' + TD,
+  "img-src 'self' data: blob: https://*.paypal.com https://*.paypalobjects.com" + TD + GTM,
+  "connect-src 'self' https://*.paypal.com https://*.paypalobjects.com" + TD + TDW + GTM,
+  'frame-src https://*.paypal.com https://*.paypalobjects.com' + TD + GTM,
   "font-src 'self' data:" + TD,
   "media-src 'self'" + TD,
   "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
@@ -1878,7 +1890,23 @@ function renderPublicHtml(file, opts = {}) {
   const skipCanonical = opts.skipCanonical || seo.skipCanonical;
   const canonical = skipCanonical ? '' : absoluteUrl(canonicalPath);
   const head = buildHead({ title, description, canonical, image, name, jsonLd, nonce: opts.nonce, ogType });
-  return html.replace('</head>', () => head + '\n</head>');
+  html = html.replace('</head>', () => head + '\n</head>');
+  return injectGtm(html, opts.nonce);
+}
+function gtmHeadScript(nonce, id) {
+  const n = nonce ? ` nonce="${escHtml(nonce)}"` : '';
+  return `<script${n}>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${id}');</script>`;
+}
+function gtmNoscript(id) {
+  return `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${escHtml(id)}" height="0" width="0" style="display:none;visibility:hidden" title="Google Tag Manager"></iframe></noscript>`;
+}
+function injectGtm(html, nonce) {
+  if (!GTM_ID) return html;
+  const head = gtmHeadScript(nonce, GTM_ID);
+  if (/<meta\s+charset=/i.test(html)) html = html.replace(/<meta\s+charset="[^"]*"\s*>/i, (m) => m + '\n' + head);
+  else html = html.replace(/<head[^>]*>/i, (m) => m + '\n' + head);
+  html = html.replace(/<body[^>]*>/i, (m) => m + '\n' + gtmNoscript(GTM_ID));
+  return html;
 }
 function xmlEsc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
@@ -2112,7 +2140,7 @@ server.listen(PORT, HOST, () => {
   const a = server.address();
   const pp = paypalConfig();
   console.log(`[tienda] Escuchando en http://${HOST}:${a.port}  (DATA_DIR=${DATA_DIR})`);
-  console.log(`[tienda] PayPal: ${PAYPAL_MOCK ? 'SIMULADO (solo pruebas)' : pp.enabled ? 'activo (' + pp.mode + ')' : 'no configurado'} | Stripe: ${stripeEnabled() ? 'activo' : 'no configurado'} | Conekta SPEI: ${CONEKTA_MOCK ? 'SIMULADO (solo pruebas)' : conektaEnabled() ? 'activo' : 'no configurado'} | Correo SMTP: ${smtpConfig() ? 'configurado' : 'no configurado (opcional)'} | Telegram: ${telegramEnabled() ? 'configurado' : 'no configurado (opcional)'} | Tidio: ${TIDIO_KEY ? 'activo' : 'no configurado (opcional)'}`);
+  console.log(`[tienda] PayPal: ${PAYPAL_MOCK ? 'SIMULADO (solo pruebas)' : pp.enabled ? 'activo (' + pp.mode + ')' : 'no configurado'} | Stripe: ${stripeEnabled() ? 'activo' : 'no configurado'} | Conekta SPEI: ${CONEKTA_MOCK ? 'SIMULADO (solo pruebas)' : conektaEnabled() ? 'activo' : 'no configurado'} | Correo SMTP: ${smtpConfig() ? 'configurado' : 'no configurado (opcional)'} | Telegram: ${telegramEnabled() ? 'configurado' : 'no configurado (opcional)'} | Tidio: ${TIDIO_KEY ? 'activo' : 'no configurado (opcional)'} | GTM: ${GTM_ID ? 'activo (' + GTM_ID + ')' : 'no configurado'}`);
 });
 function shutdown() {
   console.log('[tienda] Cerrando...');

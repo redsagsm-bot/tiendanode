@@ -13,6 +13,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     try { await navigator.clipboard.writeText(text); e.target.textContent = '¡Copiado!'; } catch { e.target.textContent = 'Copia manualmente'; }
   }, text: 'Copiar' });
 
+  const PAID = new Set(['pagado', 'preparando', 'enviado', 'entregado']);
+  function trackPurchase(o) {
+    if (!o || !o.number || !PAID.has(o.status)) return;
+    const key = 'gtm_purchase_' + o.number;
+    try { if (localStorage.getItem(key)) return; } catch { /* */ }
+    const value = Math.round(Number(o.total) || 0) / 100;
+    window.dataLayer = window.dataLayer || [];
+    dataLayer.push({ event: 'purchase', transaction_id: o.number, value, currency: 'MXN' });
+    try { localStorage.setItem(key, '1'); } catch { /* */ }
+  }
+
   function render(o, full) {
     clear(box);
     const wrap = h('div', { class: 'panel' });
@@ -100,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       h('div', { class: 'summary-line' }, h('span', { text: 'Envío' }), h('span', { text: o.shipping ? money(o.shipping) : 'Sin envío' })),
       h('div', { class: 'summary-line total' }, h('span', { text: 'Total' }), h('span', { text: money(o.total) })));
     if (full) wrap.append(h('p', { class: 'muted mt', text: 'Guarda el enlace de esta página: es privado y te permite ver tu pedido y tus códigos eSIM.' }));
+    if (full) trackPurchase(o);
   }
 
   async function load() {
